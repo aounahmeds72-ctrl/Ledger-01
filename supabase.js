@@ -5,19 +5,19 @@
 const SUPABASE_URL  = 'https://bipgtkyyovuwdejxeunx.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcGd0a3l5b3Z1d2RlanhldW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjUwOTMsImV4cCI6MjA5MDEwMTA5M30.3UjjO5-K06nsw6gybZjqr9elQarMrame_iE6de94XT4';
 
-let supabase = null;
+let supabaseClient = null;
 
 async function initSupabase() {
   const { createClient } = window.supabase;
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  return supabase;
+  supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return supabaseClient;
 }
 
 // ── Auth State ───────────────────────────────────────────
 let currentUser = null;
 
 async function onAuthChange(callback) {
-  const { data } = await supabase.auth.onAuthStateChange((event, session) => {
+  const { data } = await supabaseClient.auth.onAuthStateChange((event, session) => {
     currentUser = session?.user || null;
     if (typeof callback === 'function') callback(event, session);
   });
@@ -25,14 +25,14 @@ async function onAuthChange(callback) {
 }
 
 async function getCurrentUser() {
-  const { data } = await supabase.auth.getUser();
+  const { data } = await supabaseClient.auth.getUser();
   currentUser = data.user || null;
   return currentUser;
 }
 
 // ── Auth Methods ─────────────────────────────────────────
 async function signUp(email, password) {
-  const { data, error } = await supabase.auth.signUp({
+  const { data, error } = await supabaseClient.auth.signUp({
     email, password,
     options: { emailRedirectTo: window.location.origin }
   });
@@ -41,13 +41,13 @@ async function signUp(email, password) {
 }
 
 async function signIn(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
   return data;
 }
 
 async function resetPassword(email) {
-  const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+  const { data, error } = await supabaseClient.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}?mode=update_password`
   });
   if (error) throw new Error(error.message);
@@ -55,13 +55,13 @@ async function resetPassword(email) {
 }
 
 async function updatePassword(newPassword) {
-  const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+  const { data, error } = await supabaseClient.auth.updateUser({ password: newPassword });
   if (error) throw new Error(error.message);
   return data;
 }
 
 async function signOut() {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabaseClient.auth.signOut();
   if (error) throw new Error(error.message);
   currentUser = null;
 }
@@ -69,7 +69,7 @@ async function signOut() {
 // ── Database: Accounts ───────────────────────────────────
 async function getAccounts() {
   if (!currentUser) return [];
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('accounts')
     .select('*')
     .eq('user_id', currentUser.id)
@@ -80,7 +80,7 @@ async function getAccounts() {
 
 async function getAccount(id) {
   if (!currentUser) return null;
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('accounts')
     .select('*')
     .eq('id', id)
@@ -100,13 +100,13 @@ async function saveAccount(acc) {
     acc.created_at = new Date().toISOString();
     acc.opening_balance = parseFloat(acc.openingBalance) || 0;
 
-    const { error } = await supabase.from('accounts').insert([acc]);
+    const { error } = await supabaseClient.from('accounts').insert([acc]);
     if (error) throw new Error(error.message);
   } else {
     acc.updated_at = new Date().toISOString();
     acc.opening_balance = parseFloat(acc.openingBalance) || 0;
 
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('accounts')
       .update(acc)
       .eq('id', acc.id)
@@ -124,7 +124,7 @@ async function deleteAccount(id) {
   const inUse = vouchers.some(v => (v.entries||[]).some(e => e.account_id === id));
   if (inUse) throw new Error('Account is used in transactions and cannot be deleted.');
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('accounts')
     .delete()
     .eq('id', id)
@@ -136,7 +136,7 @@ async function deleteAccount(id) {
 // ── Database: Vouchers ───────────────────────────────────
 async function getVouchers() {
   if (!currentUser) return [];
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('vouchers')
     .select('*, entries:voucher_entries(*)')
     .eq('user_id', currentUser.id)
@@ -150,7 +150,7 @@ async function getVouchers() {
 
 async function getVoucher(id) {
   if (!currentUser) return null;
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('vouchers')
     .select('*, entries:voucher_entries(*)')
     .eq('id', id)
@@ -169,11 +169,11 @@ async function saveVoucher(voucher) {
     voucher.user_id = currentUser.id;
     voucher.created_at = new Date().toISOString();
 
-    const { error } = await supabase.from('vouchers').insert([voucher]);
+    const { error } = await supabaseClient.from('vouchers').insert([voucher]);
     if (error) throw new Error(error.message);
   } else {
     voucher.updated_at = new Date().toISOString();
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('vouchers')
       .update(voucher)
       .eq('id', voucher.id)
@@ -190,11 +190,11 @@ async function saveVoucher(voucher) {
     }));
 
     if (isNew) {
-      const { error } = await supabase.from('voucher_entries').insert(entries);
+      const { error } = await supabaseClient.from('voucher_entries').insert(entries);
       if (error) throw new Error(error.message);
     } else {
-      await supabase.from('voucher_entries').delete().eq('voucher_id', voucher.id);
-      const { error } = await supabase.from('voucher_entries').insert(entries);
+      await supabaseClient.from('voucher_entries').delete().eq('voucher_id', voucher.id);
+      const { error } = await supabaseClient.from('voucher_entries').insert(entries);
       if (error) throw new Error(error.message);
     }
   }
@@ -226,15 +226,15 @@ async function reverseVoucher(originalId) {
     }))
   };
 
-  const { error: vError } = await supabase.from('vouchers').insert([rev]);
+  const { error: vError } = await supabaseClient.from('vouchers').insert([rev]);
   if (vError) throw new Error(vError.message);
 
-  const { error: eError } = await supabase.from('voucher_entries').insert(
+  const { error: eError } = await supabaseClient.from('voucher_entries').insert(
     rev.entries.map(e => ({ ...e, voucher_id: revId, user_id: currentUser.id }))
   );
   if (eError) throw new Error(eError.message);
 
-  await supabase
+  await supabaseClient
     .from('vouchers')
     .update({ reversed: true, reversed_by: revId })
     .eq('id', originalId);
@@ -314,7 +314,7 @@ async function getAccountLedger(accountId, fromDate, toDate) {
 // ── Audit Log ────────────────────────────────────────────
 async function addAudit(message) {
   if (!currentUser) return;
-  const { error } = await supabase.from('audit_logs').insert([{
+  const { error } = await supabaseClient.from('audit_logs').insert([{
     user_id: currentUser.id,
     message,
     created_at: new Date().toISOString()
@@ -324,7 +324,7 @@ async function addAudit(message) {
 
 async function getAuditLog() {
   if (!currentUser) return [];
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('audit_logs')
     .select('*')
     .eq('user_id', currentUser.id)
@@ -333,3 +333,4 @@ async function getAuditLog() {
   if (error) throw new Error(error.message);
   return data || [];
 }
+
