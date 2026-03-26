@@ -99,6 +99,37 @@ async function getNextVoucherId() {
   return 'V-' + String(nextNum).padStart(4, '0');
 }
 
+async function getNextAccountId() {
+  if (!currentUser) throw new Error('Not authenticated');
+
+  let { data: counter, error: fetchErr } = await supabaseClient
+    .from('counters')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('counter_type', 'account')
+    .single();
+
+  if (fetchErr && fetchErr.code !== 'PGRST116') throw new Error(fetchErr.message);
+
+  let nextNum = 1;
+  if (counter) {
+    nextNum = (counter.counter_value || 0) + 1;
+    const { error: updateErr } = await supabaseClient
+      .from('counters')
+      .update({ counter_value: nextNum })
+      .eq('user_id', currentUser.id)
+      .eq('counter_type', 'account');
+    if (updateErr) throw new Error(updateErr.message);
+  } else {
+    const { error: insertErr } = await supabaseClient
+      .from('counters')
+      .insert([{ user_id: currentUser.id, counter_type: 'account', counter_value: 1 }]);
+    if (insertErr) throw new Error(insertErr.message);
+  }
+
+  return 'A-' + String(nextNum).padStart(4, '0');
+}
+
 // ── Database: Accounts ───────────────────────────────────
 async function getAccounts() {
   if (!currentUser) return [];
@@ -128,7 +159,7 @@ async function saveAccount(acc) {
   const isNew = !acc.id;
 
   const payload = {
-    id: acc.id || 'A-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+    id: acc.id || await getNextAccountId(),
     user_id: currentUser.id,
     name: acc.name,
     opening_balance: parseFloat(acc.openingBalance) || 0,
@@ -197,59 +228,92 @@ async function getVoucher(id) {
 
 async function saveVoucher(voucher) {
   if (!currentUser) throw new Error('Not authenticated');
-  const isNew = !voucher.id;
+  const forceNew = voucher._forceNew === true;
+  let isNew = forceNew || !voucher.id;
 
-  // Strip out JS-only flags before sending to DB
   const payload = {
-    id: voucher.id,
-    user_id: voucher.user_id,
+    id: voucher.id || null,
+    user_id: currentUser.id,
     date: voucher.date,
-    created_at: voucher.created_at,
-    updated_at: voucher.updated_at,
-    locked: voucher.locked !== undefined ? voucher.locked : true,
-    is_reversal: voucher.is_reversal || false,
-    reversal_of: voucher.reversal_of || null,
-    reversed: voucher.reversed || false,
-    reversed_by: voucher.reversed_by || null
+    created_at: voucher.created_at || new Date().toISOString(),
+    updated_at: voucher.updated_at || null,
+    locked: voucher.locked !== undefined ? voucher.locked : true
   };
 
+  if (!isNew && voucher.id) {
+    const existing = await getVoucher(voucher.id);
+    if (!existing) {
+      isNew = true;
+    }
+  }
+
+  let prevLocked = true;
+
   if (isNew) {
-    payload.id = await getNextVoucherId();
-    payload.user_id = currentUser.id;
-    payload.created_at = new Date().toISOString();
+    payload.id = payload.id || await getNextVoucherId();
+    if (!payload.id) throw new Error('Voucher id is required');
+
+    const exists = await getVoucher(payload.id);
+    if (exists) throw new Error(`Voucher ID ${payload.id} already exists`);
 
     const { error } = await supabaseClient.from('vouchers').insert([payload]);
     if (error) throw new Error(error.message);
     voucher.id = payload.id;
   } else {
-    payload.updated_at = new Date().toISOString();
-    const { error } = await supabaseClient
+    const existing = await getVoucher(voucher.id);
+    if (!existing) throw new Error('Voucher not found for update');
+    prevLocked = existing.locked !== undefined ? existing.locked : true;
+
+    // temporarily unlock to safely replace entries without trigger conflict
+    const { error: unlockErr } = await supabaseClient
       .from('vouchers')
-      .update(payload)
+      .update({ locked: false, updated_at: new Date().toISOString() })
       .eq('id', voucher.id)
       .eq('user_id', currentUser.id);
-    if (error) throw new Error(error.message);
+    if (unlockErr) throw new Error(unlockErr.message);
+
+    const { error: updateErr } = await supabaseClient
+      .from('vouchers')
+      .update({ date: voucher.date, updated_at: new Date().toISOString() })
+      .eq('id', voucher.id)
+      .eq('user_id', currentUser.id);
+    if (updateErr) throw new Error(updateErr.message);
   }
 
-  // Save entries
-  if (voucher.entries && voucher.entries.length > 0) {
-    const entries = (voucher.entries || []).map(e => ({
-      voucher_id: voucher.id,
-      user_id: currentUser.id,
-      account_id: e.accountId || e.account_id || '',
-      narration: e.narration || '',
-      debit: parseFloat(e.debit) || 0,
-      credit: parseFloat(e.credit) || 0
-    }));
+  // Balance check in application layer
+  const entries = (voucher.entries || []).map(e => ({
+    account_id: e.accountId || e.account_id || '',
+    narration: e.narration || '',
+    debit: parseFloat(e.debit) || 0,
+    credit: parseFloat(e.credit) || 0
+  }));
 
-    if (isNew) {
-      const { error } = await supabaseClient.from('voucher_entries').insert(entries);
-      if (error) throw new Error(error.message);
-    } else {
-      await supabaseClient.from('voucher_entries').delete().eq('voucher_id', voucher.id);
-      const { error } = await supabaseClient.from('voucher_entries').insert(entries);
-      if (error) throw new Error(error.message);
+  const totalDr = entries.reduce((s, e) => s + e.debit, 0);
+  const totalCr = entries.reduce((s, e) => s + e.credit, 0);
+  if (Math.abs(totalDr - totalCr) > 0.001) throw new Error('Voucher is not balanced (debit must equal credit)');
+
+  if (entries.length > 0) {
+    if (!isNew) {
+      const { error: delErr } = await supabaseClient.from('voucher_entries').delete().eq('voucher_id', voucher.id);
+      if (delErr) throw new Error(delErr.message);
     }
+
+    const { error: insertErr } = await supabaseClient.from('voucher_entries').insert(
+      entries.map(e => ({ ...e, voucher_id: voucher.id, user_id: currentUser.id }))
+    );
+    if (insertErr) throw new Error(insertErr.message);
+  } else if (!isNew) {
+    const { error: delErr } = await supabaseClient.from('voucher_entries').delete().eq('voucher_id', voucher.id);
+    if (delErr) throw new Error(delErr.message);
+  }
+
+  if (!isNew) {
+    const { error: lockErr } = await supabaseClient
+      .from('vouchers')
+      .update({ locked: prevLocked, updated_at: new Date().toISOString() })
+      .eq('id', voucher.id)
+      .eq('user_id', currentUser.id);
+    if (lockErr) throw new Error(lockErr.message);
   }
 
   await addAudit(`Voucher ${isNew ? 'created' : 'updated'}: ${voucher.id}`);
@@ -257,44 +321,9 @@ async function saveVoucher(voucher) {
 }
 
 async function reverseVoucher(originalId) {
-  if (!currentUser) throw new Error('Not authenticated');
-  const orig = await getVoucher(originalId);
-  if (!orig) throw new Error('Voucher not found');
-  if (orig.reversed) throw new Error('Voucher already reversed');
-
-  const revId = 'V-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-  const rev = {
-    id: revId,
-    user_id: currentUser.id,
-    date: new Date().toISOString().split('T')[0],
-    created_at: new Date().toISOString(),
-    is_reversal: true,
-    reversal_of: originalId,
-    locked: true,
-    entries: (orig.entries || []).map(e => ({
-      account_id: e.account_id,
-      narration: ('[Reversal] ' + (e.narration || '')).trim(),
-      debit: e.credit,
-      credit: e.debit
-    }))
-  };
-
-  const { error: vError } = await supabaseClient.from('vouchers').insert([rev]);
-  if (vError) throw new Error(vError.message);
-
-  const { error: eError } = await supabaseClient.from('voucher_entries').insert(
-    rev.entries.map(e => ({ ...e, voucher_id: revId, user_id: currentUser.id }))
-  );
-  if (eError) throw new Error(eError.message);
-
-  await supabaseClient
-    .from('vouchers')
-    .update({ reversed: true, reversed_by: revId })
-    .eq('id', originalId);
-
-  await addAudit(`Voucher ${originalId} reversed to ${revId}`);
-  return rev;
+  throw new Error('Voucher reversal is disabled in this build');
 }
+
 
 // ── Compute Balance ──────────────────────────────────────
 async function computeBalance(accountId, vouchers = null) {

@@ -161,30 +161,7 @@ async function saveVoucher(voucher) {
 }
 
 async function reverseVoucher(originalId) {
-  const orig = await getVoucher(originalId);
-  if (!orig) throw new Error('Voucher not found.');
-  if (orig.reversed) throw new Error('This voucher has already been reversed.');
-  const revId = await nextVoucherId();
-  const rev = {
-    id: revId,
-    date: new Date().toISOString().split('T')[0],
-    createdAt: new Date().toISOString(),
-    isReversal: true,
-    reversalOf: originalId,
-    locked: true,
-    entries: (orig.entries || []).map(e => ({
-      accountId: e.accountId,
-      narration: ('[Reversal] ' + (e.narration || '')).trim(),
-      debit:  e.credit,
-      credit: e.debit
-    }))
-  };
-  await _put('vouchers', rev);
-  orig.reversed   = true;
-  orig.reversedBy = revId;
-  await _put('vouchers', orig);
-  await addAudit(`Voucher ${originalId} reversed to ${revId}`);
-  return rev;
+  throw new Error('Voucher reversal is disabled in this build');
 }
 
 // ── LEDGER REPORT ────────────────────────────────────────

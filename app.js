@@ -358,19 +358,6 @@ function _setupTransactions() {
     _closeModal('modal-voucher-view');
     if (viewingVoucherId) openVoucherModal(viewingVoucherId);
   });
-  document.getElementById('btn-vview-reverse').addEventListener('click', () => {
-    if (!viewingVoucherId) return;
-    _confirm('Reverse Voucher', 'This creates a counter-entry to cancel this voucher.', async () => {
-      try {
-        const rev = await reverseVoucher(viewingVoucherId);
-        showToast(`Reversal voucher ${rev.id} created`, 'success');
-        _closeModal('modal-voucher-view');
-        renderVouchers();
-        renderAccounts();
-        if (currentTab === 'dashboard') renderDashboard();
-      } catch(e) { showToast(e.message, 'error'); }
-    });
-  });
 }
 
 async function renderVouchers(search = '') {
@@ -396,12 +383,10 @@ async function renderVouchers(search = '') {
     }
     vouchers.forEach((v, idx) => {
       const dr    = (v.entries||[]).reduce((s,e) => s + (parseFloat(e.debit)||0), 0);
-      const names = [...new Set((v.entries||[]).map(e => accMap[e.accountId] || e.accountId))].slice(0,3).join(', ');
+      const names = [...new Set((v.entries||[]).map(e => accMap[e.account_id] || e.accountId || e.account_id))].slice(0,3).join(', ');
       const narr  = (v.entries||[]).find(e => e.narration)?.narration || '';
       let badge = '';
-      if (v.reversed)               badge = `<span class="vou-badge badge-reversed">Reversed</span>`;
-      else if (v.isReversal)        badge = `<span class="vou-badge badge-reversal">Reversal</span>`;
-      else if (v.locked)            badge = `<span class="vou-badge badge-locked">Locked</span>`;
+      if (v.locked) badge = `<span class="vou-badge badge-locked">Locked</span>`;
       const el = document.createElement('div');
       el.className = 'vou-row';
       el.innerHTML = `
@@ -435,7 +420,14 @@ async function openVoucherModal(id = null) {
     if (v) {
       idEl.value   = v.id;
       dateEl.value = v.date;
-      for (const e of (v.entries||[])) await _addEntryRow(e);
+      for (const e of (v.entries||[])) {
+        await _addEntryRow({
+          accountId: e.account_id || e.accountId || '',
+          narration: e.narration || '',
+          debit: e.debit || 0,
+          credit: e.credit || 0
+        });
+      }
     }
   } else {
     await _addEntryRow();
@@ -581,7 +573,8 @@ async function _saveVoucherHandler() {
   try {
     const v = {
       id: editingVoucherId || (customId || null),
-      date, entries, locked: true
+      date, entries, locked: true,
+      _forceNew: !editingVoucherId && !!customId
     };
     const saved = await saveVoucher(v);
     _closeModal('modal-voucher');
@@ -602,13 +595,11 @@ async function openVoucherView(id) {
 
   document.getElementById('modal-vview-title').textContent = `Voucher ${v.id}`;
 
-  let statusTxt = 'Locked';
-  if (v.reversed)   statusTxt = `Reversed → ${v.reversedBy}`;
-  if (v.isReversal) statusTxt = `Reversal of ${v.reversalOf}`;
+  let statusTxt = v.locked ? 'Locked' : 'Open';
 
   const tBodyRows = (v.entries||[]).map(e => `
     <tr>
-      <td>${_esc(accMap[e.accountId] || e.accountId)}</td>
+      <td>${_esc(accMap[e.account_id] || e.accountId || e.account_id)}</td>
       <td>${_esc(e.narration || '—')}</td>
       <td class="vv-num">${e.debit  ? _fmt(e.debit)  : ''}</td>
       <td class="vv-num">${e.credit ? _fmt(e.credit) : ''}</td>
@@ -635,8 +626,7 @@ async function openVoucherView(id) {
       </table>
     </div>`;
 
-  document.getElementById('btn-vview-edit').style.display    = (v.reversed || v.isReversal) ? 'none' : '';
-  document.getElementById('btn-vview-reverse').style.display = v.reversed ? 'none' : '';
+  document.getElementById('btn-vview-edit').style.display = '';
   _openModal('modal-voucher-view');
 }
 
@@ -780,6 +770,9 @@ function _setupSettings() {
     showToast('Currency symbol saved', 'success');
   });
   document.getElementById('btn-logout').addEventListener('click', () => {
+    _confirm('Sign Out', 'Sign out of your account?', logout);
+  });
+  document.getElementById('btn-logout-top')?.addEventListener('click', () => {
     _confirm('Sign Out', 'Sign out of your account?', logout);
   });
 }
