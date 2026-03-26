@@ -94,21 +94,23 @@ async function saveAccount(acc) {
   if (!currentUser) throw new Error('Not authenticated');
   const isNew = !acc.id;
 
-  if (isNew) {
-    acc.id = 'A-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-    acc.user_id = currentUser.id;
-    acc.created_at = new Date().toISOString();
-    acc.opening_balance = parseFloat(acc.openingBalance) || 0;
+  const payload = {
+    id: acc.id || 'A-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
+    user_id: currentUser.id,
+    name: acc.name,
+    opening_balance: parseFloat(acc.openingBalance) || 0,
+    created_at: acc.created_at || new Date().toISOString(),
+    updated_at: acc.updated_at || null
+  };
 
-    const { error } = await supabaseClient.from('accounts').insert([acc]);
+  if (isNew) {
+    const { error } = await supabaseClient.from('accounts').insert([payload]);
     if (error) throw new Error(error.message);
   } else {
-    acc.updated_at = new Date().toISOString();
-    acc.opening_balance = parseFloat(acc.openingBalance) || 0;
-
+    payload.updated_at = new Date().toISOString();
     const { error } = await supabaseClient
       .from('accounts')
-      .update(acc)
+      .update(payload)
       .eq('id', acc.id)
       .eq('user_id', currentUser.id);
     if (error) throw new Error(error.message);
@@ -183,10 +185,13 @@ async function saveVoucher(voucher) {
 
   // Save entries
   if (voucher.entries && voucher.entries.length > 0) {
-    const entries = voucher.entries.map(e => ({
-      ...e,
+    const entries = (voucher.entries || []).map(e => ({
       voucher_id: voucher.id,
-      user_id: currentUser.id
+      user_id: currentUser.id,
+      account_id: e.accountId || e.account_id || '',
+      narration: e.narration || '',
+      debit: parseFloat(e.debit) || 0,
+      credit: parseFloat(e.credit) || 0
     }));
 
     if (isNew) {
