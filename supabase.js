@@ -66,6 +66,39 @@ async function signOut() {
   currentUser = null;
 }
 
+// ── Counter helper ──────────────────────────────────────
+async function getNextVoucherId() {
+  if (!currentUser) throw new Error('Not authenticated');
+  
+  // Get or initialize counter
+  let { data: counter, error: fetchErr } = await supabaseClient
+    .from('counters')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('counter_type', 'voucher')
+    .single();
+  
+  if (fetchErr && fetchErr.code !== 'PGRST116') throw new Error(fetchErr.message);
+  
+  let nextNum = 1;
+  if (counter) {
+    nextNum = (counter.counter_value || 0) + 1;
+    const { error: updateErr } = await supabaseClient
+      .from('counters')
+      .update({ counter_value: nextNum })
+      .eq('user_id', currentUser.id)
+      .eq('counter_type', 'voucher');
+    if (updateErr) throw new Error(updateErr.message);
+  } else {
+    const { error: insertErr } = await supabaseClient
+      .from('counters')
+      .insert([{ user_id: currentUser.id, counter_type: 'voucher', counter_value: 1 }]);
+    if (insertErr) throw new Error(insertErr.message);
+  }
+  
+  return 'V-' + String(nextNum).padStart(4, '0');
+}
+
 // ── Database: Accounts ───────────────────────────────────
 async function getAccounts() {
   if (!currentUser) return [];
@@ -166,18 +199,33 @@ async function saveVoucher(voucher) {
   if (!currentUser) throw new Error('Not authenticated');
   const isNew = !voucher.id;
 
-  if (isNew) {
-    voucher.id = 'V-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-    voucher.user_id = currentUser.id;
-    voucher.created_at = new Date().toISOString();
+  // Strip out JS-only flags before sending to DB
+  const payload = {
+    id: voucher.id,
+    user_id: voucher.user_id,
+    date: voucher.date,
+    created_at: voucher.created_at,
+    updated_at: voucher.updated_at,
+    locked: voucher.locked !== undefined ? voucher.locked : true,
+    is_reversal: voucher.is_reversal || false,
+    reversal_of: voucher.reversal_of || null,
+    reversed: voucher.reversed || false,
+    reversed_by: voucher.reversed_by || null
+  };
 
-    const { error } = await supabaseClient.from('vouchers').insert([voucher]);
+  if (isNew) {
+    payload.id = await getNextVoucherId();
+    payload.user_id = currentUser.id;
+    payload.created_at = new Date().toISOString();
+
+    const { error } = await supabaseClient.from('vouchers').insert([payload]);
     if (error) throw new Error(error.message);
+    voucher.id = payload.id;
   } else {
-    voucher.updated_at = new Date().toISOString();
+    payload.updated_at = new Date().toISOString();
     const { error } = await supabaseClient
       .from('vouchers')
-      .update(voucher)
+      .update(payload)
       .eq('id', voucher.id)
       .eq('user_id', currentUser.id);
     if (error) throw new Error(error.message);
