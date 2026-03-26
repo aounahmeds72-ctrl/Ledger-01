@@ -1,129 +1,162 @@
-// ═══════════════════════════════════════════════════════
-// auth.js — PIN Authentication + Security Question Reset
-// ═══════════════════════════════════════════════════════
+// auth.js – Supabase Auth handling
 
-const AUTH_KEY     = 'ledger_pin_hash';
-const SEC_ANS_KEY  = 'ledger_sec_ans';
-const THEME_KEY    = 'ledger_theme';
-const CURRENCY_KEY = 'ledger_currency';
-const BACKUP_KEY   = 'ledger_last_backup';
+const SUPABASE_URL = 'https://bipgtkyyovuwdejxeunx.supabase.co';   // ← replace with your URL
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcGd0a3l5b3Z1d2RlanhldW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjUwOTMsImV4cCI6MjA5MDEwMTA5M30.3UjjO5-K06nsw6gybZjqr9elQarMrame_iE6de94XT4';                // ← replace with your anon key
 
-async function _sha256(text) {
-  const enc = new TextEncoder().encode(text + 'ldgr_salt_v2');
-  const buf = await crypto.subtle.digest('SHA-256', enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-}
-const hashPin = _sha256;
-async function hashAnswer(ans) {
-  const enc = new TextEncoder().encode(ans.trim().toLowerCase() + 'ldgr_sec_v1');
-  const buf = await crypto.subtle.digest('SHA-256', enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+let supabase = null;
+
+// Initialize Supabase client
+function initSupabase() {
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return supabase;
 }
 
-const getHash      = ()  => localStorage.getItem(AUTH_KEY);
-const setHash      = h   => localStorage.setItem(AUTH_KEY, h);
-const getSecAns    = ()  => localStorage.getItem(SEC_ANS_KEY);
-const setSecAns    = h   => localStorage.setItem(SEC_ANS_KEY, h);
-const isPinSet     = ()  => !!getHash();
-const isSecAnsSet  = ()  => !!getSecAns();
+// Auth state listener
+async function initAuth() {
+  initSupabase();
 
-// ── State ────────────────────────────────────────────────
-let _buf  = '';
-let _mode = 'verify';
-// modes: verify | setup | setup-confirm | setup-sec
-//        change | change-new | change-confirm
-//        forgot-ans | forgot-new | forgot-confirm
-let _first = '';
-
-// ── DOM Helpers ──────────────────────────────────────────
-const $id = id => document.getElementById(id);
-
-function _setDots(n) {
-  $id('pin-dots').querySelectorAll('span').forEach((s, i) => s.classList.toggle('filled', i < n));
-}
-function _setSubtitle(t) { $id('pin-subtitle').textContent = t; }
-function _setError(t) {
-  const el = $id('pin-error');
-  el.textContent = t;
-  if (t) {
-    el.classList.add('shake');
-    setTimeout(() => el.classList.remove('shake'), 400);
-    setTimeout(() => { el.textContent = ''; }, 2400);
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    onAuthSuccess(session.user);
+  } else {
+    showAuthScreen();
   }
-}
-function _setHint(t) { $id('pin-hint').textContent = t; }
-function _clearBuf() { _buf = ''; _setDots(0); }
 
-// Show/hide keypad vs text-input panel
-function _showKeypad() {
-  $id('pin-keypad').style.display    = '';
-  $id('pin-dots').style.display      = '';
-  $id('pin-sec-wrap').style.display  = 'none';
-}
-function _showSecPanel(label, placeholder) {
-  $id('pin-keypad').style.display    = 'none';
-  $id('pin-dots').style.display      = 'none';
-  $id('pin-sec-label').textContent   = label;
-  $id('pin-sec-input').value         = '';
-  $id('pin-sec-input').placeholder   = placeholder || 'Your answer…';
-  $id('pin-sec-wrap').style.display  = '';
-  setTimeout(() => $id('pin-sec-input').focus(), 80);
-}
-
-// ── Security question text submit ────────────────────────
-async function _handleSecSubmit() {
-  const val = $id('pin-sec-input').value.trim();
-  if (!val) { _setError('Please enter an answer'); return; }
-
-  if (_mode === 'setup-sec') {
-    // Saving security answer after PIN setup
-    const h = await hashAnswer(val);
-    setSecAns(h);
-    _showKeypad();
-    _enterApp();
-
-  } else if (_mode === 'forgot-ans') {
-    // Verifying security answer
-    const h = await hashAnswer(val);
-    if (h === getSecAns()) {
-      _mode = 'forgot-new';
-      _clearBuf();
-      _showKeypad();
-      _setSubtitle('Enter new PIN');
-      _setHint('Choose a new 4-digit PIN');
-      _setError('');
-    } else {
-      _setError('Incorrect answer');
-      $id('pin-sec-input').value = '';
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      onAuthSuccess(session.user);
+    } else if (event === 'SIGNED_OUT') {
+      onAuthSignOut();
     }
-  }
+  });
 }
 
-// ── PIN keypad OK ────────────────────────────────────────
-async function _handleOK() {
-  if (_buf.length < 4) { _setError('Enter 4 digits'); return; }
-  const h = await hashPin(_buf);
+// UI for login / signup / forgot
+function showAuthScreen() {
+  document.getElementById('auth-screen').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('auth-error').textContent = '';
+}
 
-  if (_mode === 'verify') {
-    if (h === getHash()) { _clearBuf(); _enterApp(); }
-    else { _setError('Incorrect PIN'); _clearBuf(); }
+function hideAuthScreen() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
 
-  } else if (_mode === 'setup') {
-    _first = _buf; _clearBuf();
-    _mode = 'setup-confirm';
-    _setSubtitle('Confirm your PIN');
-    _setHint('Enter the same PIN again');
+function onAuthSuccess(user) {
+  hideAuthScreen();
+  window.currentUserId = user.id;
+  // set current user in db.js
+  if (typeof setCurrentUser === 'function') setCurrentUser(user.id);
+  // start the app
+  if (typeof onAppStart === 'function') onAppStart();
+}
 
-  } else if (_mode === 'setup-confirm') {
-    if (_buf === _first) {
-      setHash(h);
-      _clearBuf();
-      // Ask for security question answer
-      _mode = 'setup-sec';
-      _setSubtitle('Security Question');
-      _setHint('This helps you reset your PIN if forgotten');
-      _showSecPanel('What is your favourite color?', 'e.g. Blue');
-    } else {
+function onAuthSignOut() {
+  window.currentUserId = null;
+  showAuthScreen();
+}
+
+// Login handler
+async function login(email, password) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+// Signup handler
+async function signup(email, password) {
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) throw error;
+  // User created, now they can login
+  showToast('Account created! Please log in.', 'success');
+}
+
+// Forgot password (send reset email)
+async function forgotPassword(email) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw error;
+  showToast('Password reset email sent!', 'success');
+}
+
+// Logout
+async function logout() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+// Change password (for settings)
+async function changePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+  showToast('Password changed successfully', 'success');
+}
+
+// Setup UI event listeners
+function setupAuthUI() {
+  // Tab switching
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.authTab;
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+      document.getElementById(`${target}-form`).classList.add('active');
+    });
+  });
+
+  // Login form
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errorEl = document.getElementById('auth-error');
+    try {
+      await login(email, password);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  // Signup form
+  document.getElementById('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+    const errorEl = document.getElementById('auth-error');
+    try {
+      await signup(email, password);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+
+  // Forgot password link
+  document.getElementById('forgot-password-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    if (!email) {
+      showToast('Enter your email first', 'error');
+      return;
+    }
+    try {
+      await forgotPassword(email);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Logout buttons
+  const logoutBtn = document.getElementById('logout-btn');
+  const logoutBtnMobile = document.getElementById('logout-btn-mobile');
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => { await logout(); });
+  if (logoutBtnMobile) logoutBtnMobile.addEventListener('click', async () => { await logout(); });
+}
+
+// Expose supabase client globally for db.js
+window.supabaseClient = () => supabase;
+window.changePassword = changePassword; // for settings  } else {
       _setError('PINs do not match'); _clearBuf();
       _mode = 'setup'; _setSubtitle('Create a 4-digit PIN'); _setHint('');
     }

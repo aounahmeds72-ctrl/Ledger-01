@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// app.js — Ledger Main Application
+// app.js — Ledger Main Application (Supabase version)
 // ═══════════════════════════════════════════════════════
 
 let currentTab = 'dashboard';
@@ -13,7 +13,11 @@ const PINNED_KEY = 'ledger_pinned_accounts';
 
 // ── Boot ──────────────────────────────────────────────────
 async function onAppStart() {
-  await initDB();
+  if (!window.currentUserId) {
+    // Not logged in yet, auth.js will handle redirect
+    return;
+  }
+  setCurrentUser(window.currentUserId);
   curr = localStorage.getItem(CURRENCY_KEY) || '$';
   _applyTheme();
   _setupNav();
@@ -300,7 +304,7 @@ function _openAccountModal(id = null) {
     getAccount(id).then(acc => {
       if (!acc) return;
       document.getElementById('acc-name').value    = acc.name;
-      document.getElementById('acc-opening').value = acc.openingBalance || '';
+      document.getElementById('acc-opening').value = acc.opening_balance || '';
     });
   }
   _openModal('modal-account');
@@ -317,7 +321,7 @@ async function _saveAccountHandler() {
     const acc = {
       id: editingAccountId || null,
       name,
-      openingBalance: parseFloat(document.getElementById('acc-opening').value) || 0
+      opening_balance: parseFloat(document.getElementById('acc-opening').value) || 0
     };
     await saveAccount(acc);
     _closeModal('modal-account');
@@ -395,7 +399,7 @@ async function renderVouchers(search = '') {
       const narr  = (v.entries||[]).find(e => e.narration)?.narration || '';
       let badge = '';
       if (v.reversed)               badge = `<span class="vou-badge badge-reversed">Reversed</span>`;
-      else if (v.isReversal)        badge = `<span class="vou-badge badge-reversal">Reversal</span>`;
+      else if (v.is_reversal)        badge = `<span class="vou-badge badge-reversal">Reversal</span>`;
       else if (v.locked)            badge = `<span class="vou-badge badge-locked">Locked</span>`;
       const el = document.createElement('div');
       el.className = 'vou-row';
@@ -578,16 +582,16 @@ async function openVoucherView(id) {
   document.getElementById('modal-vview-title').textContent = `Voucher ${v.id}`;
 
   let statusTxt = 'Locked';
-  if (v.reversed)   statusTxt = `Reversed → ${v.reversedBy}`;
-  if (v.isReversal) statusTxt = `Reversal of ${v.reversalOf}`;
+  if (v.reversed)   statusTxt = `Reversed → ${v.reversed_by}`;
+  if (v.is_reversal) statusTxt = `Reversal of ${v.reversal_of}`;
 
   const tBodyRows = (v.entries||[]).map(e => `
     <tr>
-      <td>${_esc(accMap[e.accountId] || e.accountId)}</td>
-      <td>${_esc(e.narration || '—')}</td>
+       <td>${_esc(accMap[e.accountId] || e.accountId)}</td>
+       <td>${_esc(e.narration || '—')}</td>
       <td class="vv-num">${e.debit  ? _fmt(e.debit)  : ''}</td>
       <td class="vv-num">${e.credit ? _fmt(e.credit) : ''}</td>
-    </tr>`).join('');
+     </tr>`).join('');
 
   const dr = (v.entries||[]).reduce((s,e) => s + (parseFloat(e.debit)||0), 0);
   const cr = (v.entries||[]).reduce((s,e) => s + (parseFloat(e.credit)||0), 0);
@@ -610,7 +614,7 @@ async function openVoucherView(id) {
       </table>
     </div>`;
 
-  document.getElementById('btn-vview-edit').style.display    = (v.reversed || v.isReversal) ? 'none' : '';
+  document.getElementById('btn-vview-edit').style.display    = (v.reversed || v.is_reversal) ? 'none' : '';
   document.getElementById('btn-vview-reverse').style.display = v.reversed ? 'none' : '';
   _openModal('modal-voucher-view');
 }
@@ -675,7 +679,7 @@ async function _generateReport() {
     if (!data) { showToast('Account not found', 'error'); return; }
 
     const tRows = data.rows.map((r, i) => `
-      <tr>
+       <tr>
         <td class="sn-col">${i + 1}</td>
         <td>${_fmtDate(r.date)}</td>
         <td class="vid">${_esc(r.voucherId)}</td>
@@ -683,7 +687,7 @@ async function _generateReport() {
         <td class="num dr">${r.debit  ? _fmt(r.debit)  : ''}</td>
         <td class="num cr">${r.credit ? _fmt(r.credit) : ''}</td>
         <td class="num bl">${_fmtSigned(r.balance)}</td>
-      </tr>`).join('');
+       </tr>`).join('');
 
     document.getElementById('report-output').innerHTML = `
       <div id="printable-report">
@@ -796,7 +800,7 @@ async function renderAuditLog() {
       return;
     }
     log.forEach((entry, idx) => {
-      const d = new Date(entry.time || entry.ts);
+      const d = new Date(entry.created_at || entry.time);
       const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
       const row = document.createElement('div');
       row.className = 'audit-entry';
@@ -821,13 +825,21 @@ function _setupSettings() {
     localStorage.setItem(CURRENCY_KEY, sym);
     showToast('Currency symbol saved', 'success');
   });
-  document.getElementById('btn-change-pin').addEventListener('click', () => {
-    lockApp();
-    _mode = 'change';
-    _setSubtitle('Enter current PIN');
+  document.getElementById('btn-change-password').addEventListener('click', async () => {
+    const newPassword = prompt('Enter new password (minimum 6 characters):');
+    if (!newPassword) return;
+    if (newPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+    try {
+      await changePassword(newPassword);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   });
   document.getElementById('btn-clear-all').addEventListener('click', () => {
-    _confirm('Clear All Data', 'This will permanently delete ALL accounts, vouchers, and data. Cannot be undone.', async () => {
+    _confirm('Clear All Data', 'This will permanently delete ALL your accounts, vouchers, and data. Cannot be undone.', async () => {
       await clearAllData();
       localStorage.removeItem(BACKUP_KEY);
       showToast('All data cleared', 'success');
@@ -837,4 +849,7 @@ function _setupSettings() {
 }
 
 // ── DOM ready ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => { initAuth(); });
+document.addEventListener('DOMContentLoaded', () => {
+  initAuth();      // from auth.js
+  setupAuthUI();   // from auth.js
+});
