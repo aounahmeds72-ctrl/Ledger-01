@@ -1,7 +1,18 @@
+The signup/login issue is caused by a corrupted auth.js file that mixes Supabase auth code with leftover PIN lock logic, leading to syntax errors and function conflicts. The attached file contains a clean, corrected auth.js that:
+
+· Removes all PIN‑related code.
+· Correctly initializes Supabase.
+· Handles login, signup, password reset, and logout.
+· Sets up UI event listeners and the auth state listener.
+· Exposes the Supabase client for db.js.
+
+After replacing auth.js with this version, the authentication flow will work. Ensure that your Supabase project has the required tables (accounts, vouchers, audit, user_counters) to fully use the app after login.
+
+```javascript
 // auth.js – Supabase Auth handling
 
-const SUPABASE_URL = 'https://bipgtkyyovuwdejxeunx.supabase.co';   // ← replace with your URL
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcGd0a3l5b3Z1d2RlanhldW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjUwOTMsImV4cCI6MjA5MDEwMTA5M30.3UjjO5-K06nsw6gybZjqr9elQarMrame_iE6de94XT4';                // ← replace with your anon key
+const SUPABASE_URL = 'https://bipgtkyyovuwdejxeunx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpcGd0a3l5b3Z1d2RlanhldW54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjUwOTMsImV4cCI6MjA5MDEwMTA5M30.3UjjO5-K06nsw6gybZjqr9elQarMrame_iE6de94XT4';
 
 let supabase = null;
 
@@ -46,9 +57,7 @@ function hideAuthScreen() {
 function onAuthSuccess(user) {
   hideAuthScreen();
   window.currentUserId = user.id;
-  // set current user in db.js
   if (typeof setCurrentUser === 'function') setCurrentUser(user.id);
-  // start the app
   if (typeof onAppStart === 'function') onAppStart();
 }
 
@@ -67,7 +76,6 @@ async function login(email, password) {
 async function signup(email, password) {
   const { error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
-  // User created, now they can login
   showToast('Account created! Please log in.', 'success');
 }
 
@@ -156,121 +164,11 @@ function setupAuthUI() {
 
 // Expose supabase client globally for db.js
 window.supabaseClient = () => supabase;
-window.changePassword = changePassword; // for settings  } else {
-      _setError('PINs do not match'); _clearBuf();
-      _mode = 'setup'; _setSubtitle('Create a 4-digit PIN'); _setHint('');
-    }
+window.changePassword = changePassword;
 
-  } else if (_mode === 'change') {
-    if (h === getHash()) { _clearBuf(); _mode = 'change-new'; _setSubtitle('Enter new PIN'); _setHint(''); }
-    else { _setError('Incorrect PIN'); _clearBuf(); }
-
-  } else if (_mode === 'change-new') {
-    _first = _buf; _clearBuf();
-    _mode = 'change-confirm'; _setSubtitle('Confirm new PIN');
-
-  } else if (_mode === 'change-confirm') {
-    if (_buf === _first) {
-      setHash(h); _clearBuf();
-      _setSubtitle('Enter your PIN'); _setHint('');
-      _enterApp();
-    } else {
-      _setError('PINs do not match'); _clearBuf();
-      _mode = 'change-new'; _setSubtitle('Enter new PIN');
-    }
-
-  } else if (_mode === 'forgot-new') {
-    _first = _buf; _clearBuf();
-    _mode = 'forgot-confirm'; _setSubtitle('Confirm new PIN');
-
-  } else if (_mode === 'forgot-confirm') {
-    if (_buf === _first) {
-      setHash(h); _clearBuf();
-      _setSubtitle('Enter your PIN'); _setHint('');
-      _setError('');
-      _mode = 'verify';
-      _showKeypad();
-      _updateForgotBtn();
-    } else {
-      _setError('PINs do not match'); _clearBuf();
-      _mode = 'forgot-new'; _setSubtitle('Enter new PIN');
-    }
-  }
-}
-
-function _enterApp() {
-  _showKeypad();
-  $id('pin-screen').classList.add('hidden');
-  $id('app').classList.remove('hidden');
-  if (typeof onAppStart === 'function') onAppStart();
-}
-
-function lockApp() {
-  $id('app').classList.add('hidden');
-  $id('pin-screen').classList.remove('hidden');
-  _mode = 'verify'; _clearBuf(); _showKeypad();
-  _setSubtitle('Enter your PIN'); _setHint(''); _setError('');
-  _updateForgotBtn();
-}
-
-function _updateForgotBtn() {
-  const btn = $id('btn-forgot-pin');
-  if (!btn) return;
-  btn.style.display = (isPinSet() && isSecAnsSet() && _mode === 'verify') ? '' : 'none';
-}
-
-// ── Init ─────────────────────────────────────────────────
-function initAuth() {
-  // Keypad clicks
-  document.querySelectorAll('.key').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const v = btn.dataset.val;
-      if (v === 'clear') { if (_buf.length) { _buf = _buf.slice(0,-1); _setDots(_buf.length); } }
-      else if (v === 'ok') { await _handleOK(); }
-      else if (_buf.length < 4) { _buf += v; _setDots(_buf.length); }
-    });
-  });
-
-  // Physical keyboard — PIN digits
-  document.addEventListener('keydown', async e => {
-    const pinVisible = !$id('pin-screen').classList.contains('hidden');
-    const secVisible = $id('pin-sec-wrap') && $id('pin-sec-wrap').style.display !== 'none';
-    if (!pinVisible) return;
-    if (secVisible) {
-      if (e.key === 'Enter') { e.preventDefault(); await _handleSecSubmit(); }
-      return;
-    }
-    if (e.key >= '0' && e.key <= '9' && _buf.length < 4) { _buf += e.key; _setDots(_buf.length); }
-    else if (e.key === 'Backspace') { if (_buf.length) { _buf = _buf.slice(0,-1); _setDots(_buf.length); } }
-    else if (e.key === 'Enter') { await _handleOK(); }
-  });
-
-  // Security panel submit button
-  $id('pin-sec-submit')?.addEventListener('click', _handleSecSubmit);
-
-  // Forgot PIN button
-  $id('btn-forgot-pin')?.addEventListener('click', () => {
-    if (!isSecAnsSet()) return;
-    _mode = 'forgot-ans';
-    _clearBuf();
-    _setSubtitle('Reset PIN');
-    _setHint('Answer your security question to continue');
-    _showSecPanel('What is your favourite color?', 'Your answer…');
-    _setError('');
-  });
-
-  // Lock buttons
-  $id('lock-btn-sidebar')?.addEventListener('click', lockApp);
-  $id('lock-btn-top')?.addEventListener('click', lockApp);
-
-  // Initial mode
-  if (isPinSet()) {
-    _mode = 'verify';
-    _setSubtitle('Enter your PIN');
-  } else {
-    _mode = 'setup';
-    _setSubtitle('Create a 4-digit PIN');
-    _setHint("You'll use this PIN to access your data");
-  }
-  _updateForgotBtn();
-}
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+  initAuth();
+  setupAuthUI();
+});
+```
