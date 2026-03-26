@@ -581,7 +581,6 @@ async function _saveVoucherHandler() {
   try {
     const v = {
       id: editingVoucherId || (customId || null),
-      _forceNew: !editingVoucherId,
       date, entries, locked: true
     };
     const saved = await saveVoucher(v);
