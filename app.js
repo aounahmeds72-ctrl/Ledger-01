@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-// app.js — Ledger Main Application (Supabase version)
+// app.js — Ledger Main Application (Supabase)
 // ═══════════════════════════════════════════════════════
 
 let currentTab = 'dashboard';
@@ -10,14 +10,11 @@ let confirmCb = null;
 let curr = '$';
 
 const PINNED_KEY = 'ledger_pinned_accounts';
+const CURRENCY_KEY = 'ledger_currency';
+const THEME_KEY = 'ledger_theme';
 
 // ── Boot ──────────────────────────────────────────────────
 async function onAppStart() {
-  if (!window.currentUserId) {
-    // Not logged in yet, auth.js will handle redirect
-    return;
-  }
-  setCurrentUser(window.currentUserId);
   curr = localStorage.getItem(CURRENCY_KEY) || '$';
   _applyTheme();
   _setupNav();
@@ -25,12 +22,16 @@ async function onAppStart() {
   _setupAccounts();
   _setupTransactions();
   _setupReports();
-  _setupBackup();
   _setupSettings();
   _setupConfirm();
   _setupRefreshButtons();
   switchTab('dashboard');
   document.getElementById('today-date').textContent = _fmtDate(new Date().toISOString().split('T')[0]);
+  
+  // Update user info in top bar
+  const user = currentUser;
+  const userEmail = document.getElementById('user-email');
+  if (userEmail) userEmail.textContent = user?.email || 'User';
 }
 
 // ── Theme ─────────────────────────────────────────────────
@@ -304,7 +305,7 @@ function _openAccountModal(id = null) {
     getAccount(id).then(acc => {
       if (!acc) return;
       document.getElementById('acc-name').value    = acc.name;
-      document.getElementById('acc-opening').value = acc.opening_balance || '';
+      document.getElementById('acc-opening').value = acc.openingBalance || '';
     });
   }
   _openModal('modal-account');
@@ -321,7 +322,7 @@ async function _saveAccountHandler() {
     const acc = {
       id: editingAccountId || null,
       name,
-      opening_balance: parseFloat(document.getElementById('acc-opening').value) || 0
+      openingBalance: parseFloat(document.getElementById('acc-opening').value) || 0
     };
     await saveAccount(acc);
     _closeModal('modal-account');
@@ -399,7 +400,7 @@ async function renderVouchers(search = '') {
       const narr  = (v.entries||[]).find(e => e.narration)?.narration || '';
       let badge = '';
       if (v.reversed)               badge = `<span class="vou-badge badge-reversed">Reversed</span>`;
-      else if (v.is_reversal)        badge = `<span class="vou-badge badge-reversal">Reversal</span>`;
+      else if (v.isReversal)        badge = `<span class="vou-badge badge-reversal">Reversal</span>`;
       else if (v.locked)            badge = `<span class="vou-badge badge-locked">Locked</span>`;
       const el = document.createElement('div');
       el.className = 'vou-row';
@@ -539,21 +540,42 @@ async function _saveVoucherHandler() {
 
   const entries = [];
   let hasAcc = false;
-  document.querySelectorAll('#voucher-entries .entry-row').forEach(r => {
+  const rows = document.querySelectorAll('#voucher-entries .entry-row');
+
+  for (const r of rows) {
     const accountId = r.querySelector('.e-acc').value;
     const narration = r.querySelector('.e-narr').value.trim();
     const debit     = parseFloat(r.querySelector('.e-dr').value) || 0;
     const credit    = parseFloat(r.querySelector('.e-cr').value) || 0;
+
     if (accountId) hasAcc = true;
-    if (accountId || debit || credit) entries.push({ accountId, narration, debit, credit });
-  });
+    if (!accountId && (debit !== 0 || credit !== 0)) {
+      showToast('Every entry with amount must have an account', 'error');
+      return;
+    }
+
+    if (accountId || debit !== 0 || credit !== 0) {
+      entries.push({ accountId, narration, debit, credit });
+    }
+  }
 
   if (!hasAcc || entries.length < 2) {
-    showToast('At least 2 entries with accounts required', 'error'); return;
+    showToast('At least 2 entries with accounts required', 'error');
+    return;
   }
+
   const { dr, cr } = _getTotals();
   if (Math.abs(dr - cr) > 0.001) {
-    showToast('Voucher must be balanced (Debit = Credit)', 'error'); return;
+    showToast('Voucher must be balanced (Debit = Credit)', 'error');
+    return;
+  }
+
+  if (!editingVoucherId && customId) {
+    const existing = await getVoucher(customId);
+    if (existing) {
+      showToast('Voucher ID already exists', 'error');
+      return;
+    }
   }
 
   try {
@@ -582,16 +604,16 @@ async function openVoucherView(id) {
   document.getElementById('modal-vview-title').textContent = `Voucher ${v.id}`;
 
   let statusTxt = 'Locked';
-  if (v.reversed)   statusTxt = `Reversed → ${v.reversed_by}`;
-  if (v.is_reversal) statusTxt = `Reversal of ${v.reversal_of}`;
+  if (v.reversed)   statusTxt = `Reversed → ${v.reversedBy}`;
+  if (v.isReversal) statusTxt = `Reversal of ${v.reversalOf}`;
 
   const tBodyRows = (v.entries||[]).map(e => `
     <tr>
-       <td>${_esc(accMap[e.accountId] || e.accountId)}</td>
-       <td>${_esc(e.narration || '—')}</td>
+      <td>${_esc(accMap[e.accountId] || e.accountId)}</td>
+      <td>${_esc(e.narration || '—')}</td>
       <td class="vv-num">${e.debit  ? _fmt(e.debit)  : ''}</td>
       <td class="vv-num">${e.credit ? _fmt(e.credit) : ''}</td>
-     </tr>`).join('');
+    </tr>`).join('');
 
   const dr = (v.entries||[]).reduce((s,e) => s + (parseFloat(e.debit)||0), 0);
   const cr = (v.entries||[]).reduce((s,e) => s + (parseFloat(e.credit)||0), 0);
@@ -614,7 +636,7 @@ async function openVoucherView(id) {
       </table>
     </div>`;
 
-  document.getElementById('btn-vview-edit').style.display    = (v.reversed || v.is_reversal) ? 'none' : '';
+  document.getElementById('btn-vview-edit').style.display    = (v.reversed || v.isReversal) ? 'none' : '';
   document.getElementById('btn-vview-reverse').style.display = v.reversed ? 'none' : '';
   _openModal('modal-voucher-view');
 }
@@ -679,7 +701,7 @@ async function _generateReport() {
     if (!data) { showToast('Account not found', 'error'); return; }
 
     const tRows = data.rows.map((r, i) => `
-       <tr>
+      <tr>
         <td class="sn-col">${i + 1}</td>
         <td>${_fmtDate(r.date)}</td>
         <td class="vid">${_esc(r.voucherId)}</td>
@@ -687,7 +709,7 @@ async function _generateReport() {
         <td class="num dr">${r.debit  ? _fmt(r.debit)  : ''}</td>
         <td class="num cr">${r.credit ? _fmt(r.credit) : ''}</td>
         <td class="num bl">${_fmtSigned(r.balance)}</td>
-       </tr>`).join('');
+      </tr>`).join('');
 
     document.getElementById('report-output').innerHTML = `
       <div id="printable-report">
@@ -744,73 +766,6 @@ function _printReport() {
 }
 
 // ═══════════════════════════════════════════════════════
-// BACKUP
-// ═══════════════════════════════════════════════════════
-function _setupBackup() {
-  document.getElementById('btn-export').addEventListener('click', _exportBackup);
-  document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
-  document.getElementById('import-file').addEventListener('change', _importBackup);
-  _renderLastBackup();
-}
-function _renderLastBackup() {
-  const last = localStorage.getItem(BACKUP_KEY);
-  const el   = document.getElementById('last-backup-info');
-  if (el) el.textContent = last ? `Last backup: ${_fmtDate(last.split('T')[0])}` : 'Last backup: Never';
-}
-async function _exportBackup() {
-  try {
-    const data = await exportData();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `Ledger_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click(); URL.revokeObjectURL(url);
-    localStorage.setItem(BACKUP_KEY, new Date().toISOString());
-    _renderLastBackup();
-    showToast('Backup exported', 'success');
-  } catch(e) { showToast('Export failed: ' + e.message, 'error'); }
-}
-async function _importBackup(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const mode = document.querySelector('input[name="import-mode"]:checked').value;
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    _confirm('Import Data',
-      `${mode === 'replace' ? 'Replace ALL data' : 'Merge'} with ${data.accounts?.length||0} accounts and ${data.vouchers?.length||0} vouchers?`,
-      async () => {
-        try {
-          await importData(data, mode);
-          showToast('Data imported successfully', 'success');
-          renderAuditLog(); renderDashboard(); renderAccounts();
-        } catch(err) { showToast('Import failed: ' + err.message, 'error'); }
-      });
-  } catch(err) { showToast('Invalid JSON file', 'error'); }
-  e.target.value = '';
-}
-
-async function renderAuditLog() {
-  try {
-    const log = await getAuditLog();
-    const el  = document.getElementById('audit-log-list');
-    el.innerHTML = '';
-    if (!log.length) {
-      el.innerHTML = '<div style="color:var(--t3);font-size:12px;padding:8px 0">No entries yet</div>';
-      return;
-    }
-    log.forEach((entry, idx) => {
-      const d = new Date(entry.created_at || entry.time);
-      const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-      const row = document.createElement('div');
-      row.className = 'audit-entry';
-      row.innerHTML = `<span class="audit-sn">${idx + 1}</span><span class="audit-ts">${timeStr}</span><span class="audit-msg">${_esc(entry.message)}</span>`;
-      el.appendChild(row);
-    });
-  } catch(e) { console.error('renderAuditLog error:', e); }
-}
-
-// ═══════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════
 function _setupSettings() {
@@ -825,31 +780,10 @@ function _setupSettings() {
     localStorage.setItem(CURRENCY_KEY, sym);
     showToast('Currency symbol saved', 'success');
   });
-  document.getElementById('btn-change-password').addEventListener('click', async () => {
-    const newPassword = prompt('Enter new password (minimum 6 characters):');
-    if (!newPassword) return;
-    if (newPassword.length < 6) {
-      showToast('Password must be at least 6 characters', 'error');
-      return;
-    }
-    try {
-      await changePassword(newPassword);
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
-  document.getElementById('btn-clear-all').addEventListener('click', () => {
-    _confirm('Clear All Data', 'This will permanently delete ALL your accounts, vouchers, and data. Cannot be undone.', async () => {
-      await clearAllData();
-      localStorage.removeItem(BACKUP_KEY);
-      showToast('All data cleared', 'success');
-      renderDashboard(); renderAccounts(); renderVouchers();
-    });
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    _confirm('Sign Out', 'Sign out of your account?', logout);
   });
 }
 
 // ── DOM ready ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  initAuth();      // from auth.js
-  setupAuthUI();   // from auth.js
-});
+document.addEventListener('DOMContentLoaded', () => { initAuth(); });
