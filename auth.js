@@ -125,10 +125,20 @@ function setAuthMode(mode) {
 }
 
 async function _handleAuthSubmit() {
-  const email = document.getElementById('auth-email').value.trim();
-  const pass = document.getElementById('auth-password').value;
-  const confirmPass = document.getElementById('auth-confirm-password').value;
+  const emailEl = document.getElementById('auth-email');
+  const passEl = document.getElementById('auth-password');
+  const confirmPassEl = document.getElementById('auth-confirm-password');
   const errorEl = document.getElementById('auth-error');
+
+  if (!errorEl) {
+    console.error('[auth] auth-error element not found');
+    return;
+  }
+
+  const email = emailEl?.value?.trim() || '';
+  const pass = passEl?.value || '';
+  const confirmPass = confirmPassEl?.value || '';
+
   errorEl.textContent = '';
 
   try {
