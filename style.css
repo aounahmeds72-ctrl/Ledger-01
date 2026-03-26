@@ -827,123 +827,200 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   .key { height: 56px; font-size: 20px; }
 }
 
-/* ═══════════════════════════════════════════════════════
-   INSTALL BUTTON
-   ═══════════════════════════════════════════════════════ */
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.btn-install {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--accent, #6c63ff);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity .2s, transform .15s;
-  white-space: nowrap;
-}
-.btn-install:hover { opacity: .88; transform: translateY(-1px); }
-.btn-install.hidden { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════
-   STATS GRID — 2 boxes (no hero)
+   OVERRIDES & NEW FEATURES
    ═══════════════════════════════════════════════════════ */
+
+/* ── No install button ── */
+.btn-install { display: none !important; }
+
+/* ── Page header layout ── */
+.page-header {
+  display: flex; align-items: center;
+  justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
+}
+.ph-left  { display: flex; align-items: center; gap: 12px; flex: 1; }
+.ph-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ── Refresh button ── */
+.btn-refresh {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  background: var(--bg3); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--t2);
+  transition: color .15s, background .15s, transform .2s;
+  flex-shrink: 0;
+}
+.btn-refresh:hover { color: var(--t0); background: var(--bg4); }
+.btn-refresh svg.spin { animation: spin 0.5s linear; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Stats grid — 2 columns only, no hero ── */
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 10px; margin-bottom: 20px;
 }
 .stat-hero { display: none !important; }
 
-/* ═══════════════════════════════════════════════════════
-   PINNED ACCOUNTS GRID
-   ═══════════════════════════════════════════════════════ */
-.pinned-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+/* ── Scrollable list areas ── */
+.scrollable {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.scrollable::-webkit-scrollbar { width: 3px; }
+.scrollable::-webkit-scrollbar-track { background: transparent; }
+.scrollable::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
+
+/* ── Account row — no ID shown ── */
+.acc-id { display: none !important; }
+
+/* ── Serial number badges in lists ── */
+.acc-sn, .vou-sn, .recent-sn, .audit-sn {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 26px; height: 26px;
+  background: var(--bg3); border-radius: 6px;
+  font-size: 11px; font-weight: 700; color: var(--t3);
+  font-family: var(--mono); flex-shrink: 0;
+}
+
+/* Account row: serial + left + right */
+.acc-row {
+  display: flex; align-items: center;
   gap: 10px;
-  margin-bottom: 20px;
 }
-.pinned-card {
-  background: var(--card, #18181f);
-  border: 1px solid var(--border, #2a2a35);
-  border-radius: 12px;
-  padding: 14px 14px 12px;
-  cursor: pointer;
-  transition: border-color .2s, transform .15s;
-}
-.pinned-card:hover { border-color: var(--accent, #6c63ff); transform: translateY(-2px); }
-.pinned-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--t1, #fff);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
-}
-.pinned-id {
-  font-size: 10px;
-  color: var(--t3, #666);
-  font-family: 'JetBrains Mono', monospace;
-  margin-bottom: 8px;
-}
-.pinned-bal {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--green, #4ade80);
-}
-.pinned-bal.neg { color: var(--red, #f87171); }
+.acc-left { flex: 1; min-width: 0; }
+.acc-bal.neg { color: var(--red); }
 
-/* ═══════════════════════════════════════════════════════
-   PIN BUTTON on account rows
-   ═══════════════════════════════════════════════════════ */
-.pin-btn { color: var(--t3, #666); }
-.pin-btn.pinned { color: var(--accent, #6c63ff) !important; }
-.pin-btn.pinned svg { fill: var(--accent, #6c63ff); stroke: var(--accent, #6c63ff); }
-.pin-btn:hover { color: var(--accent, #6c63ff); }
+/* Voucher row: serial number */
+.vou-row  { display: flex; align-items: flex-start; gap: 10px; }
+.vou-left { flex: 1; min-width: 0; }
+.vou-narr {
+  font-size: 11px; color: var(--t2); font-style: italic;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 2px;
+}
 
-/* ═══════════════════════════════════════════════════════
-   ACCOUNT COMBO (type + datalist)
-   ═══════════════════════════════════════════════════════ */
+/* Recent row: serial + mid + amount */
+.recent-row { display: flex; align-items: center; gap: 10px; }
+.recent-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.recent-mid  { flex: 1; min-width: 0; }
+
+/* Audit row serial */
+.audit-entry { display: flex; align-items: flex-start; gap: 8px; }
+.audit-sn { margin-top: 1px; }
+
+/* ── Account combo: type + datalist ── */
 .acc-combo {
-  position: relative;
-  flex: 0 0 auto;
-  width: 160px;
-  min-width: 0;
+  position: relative; width: 100%;
 }
 .acc-combo .e-acc-text {
-  width: 100%;
-  box-sizing: border-box;
+  width: 100%; box-sizing: border-box;
   padding: 8px 10px;
-  background: var(--input-bg, #111118);
-  border: 1px solid var(--border, #2a2a35);
-  border-radius: 8px;
-  color: var(--t1, #fff);
-  font-size: 13px;
-  outline: none;
+  background: var(--bg1); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--t1); font-size: 13px; outline: none;
+  transition: border-color .15s;
 }
-.acc-combo .e-acc-text:focus {
-  border-color: var(--accent, #6c63ff);
+.acc-combo .e-acc-text:focus   { border-color: var(--acc); }
+.acc-combo .e-acc-text.acc-nomatch { border-color: var(--red); }
+
+/* Report account combo (full width) */
+.report-acc-combo .e-acc-text { font-size: 14px; padding: 9px 12px; }
+
+/* ── Voucher entry row ── */
+.entries-head {
+  display: grid;
+  grid-template-columns: 24px 160px 1fr 80px 80px 32px;
+  gap: 6px; padding: 0 4px 6px;
+  font-size: 11px; font-weight: 600; color: var(--t3);
+  text-transform: uppercase; letter-spacing: .05em;
+  border-bottom: 1px solid var(--line); margin-bottom: 6px;
 }
-.acc-combo .e-acc-text.acc-nomatch {
-  border-color: var(--red, #f87171);
+.eh-sn { text-align: center; }
+
+.entry-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 80px 80px 32px;
+  gap: 6px; align-items: center; margin-bottom: 6px;
+  counter-increment: entry-counter;
 }
 
-/* Adjust entry-row first column to use .acc-combo width */
-.entry-row { display: grid; grid-template-columns: 160px 1fr 90px 90px 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+/* ── Voucher ID hint ── */
+.req-hint { font-size: 11px; font-weight: 400; color: var(--t3); margin-left: 4px; }
+
+/* ── Pinned accounts grid ── */
+.pinned-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px; margin-bottom: 20px;
+}
+.pinned-card {
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 12px 12px;
+  cursor: pointer; transition: border-color .2s, transform .15s;
+}
+.pinned-card:hover { border-color: var(--acc); transform: translateY(-2px); }
+.pinned-name {
+  font-size: 12px; font-weight: 600; color: var(--t1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 6px;
+}
+.pinned-bal { font-size: 13px; font-weight: 700; color: var(--green); }
+.pinned-bal.neg { color: var(--red); }
+
+/* ── Pin button on account rows ── */
+.pin-btn { color: var(--t3); }
+.pin-btn.pinned svg { stroke: var(--acc); fill: var(--acc-bg2); }
+.pin-btn.pinned     { color: var(--acc); }
+
+/* ── Report table serial column ── */
+.sn-col { width: 32px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--t3); }
+
+/* ── Security question panel on PIN screen ── */
+.pin-sec-label {
+  font-size: 14px; font-weight: 600; color: var(--t1);
+  text-align: center; margin-bottom: 12px; line-height: 1.5;
+}
+.pin-sec-row {
+  display: flex; gap: 8px; width: 100%;
+}
+.pin-sec-input {
+  flex: 1; padding: 10px 14px;
+  background: var(--bg2); border: 1px solid var(--line2);
+  border-radius: 10px; color: var(--t1); font-size: 14px;
+  outline: none; transition: border-color .15s;
+}
+.pin-sec-input:focus { border-color: var(--acc); }
+.pin-sec-btn {
+  padding: 10px 16px;
+  background: var(--acc); color: var(--bg);
+  border-radius: 10px; font-size: 13px; font-weight: 700;
+  white-space: nowrap; transition: opacity .15s;
+}
+.pin-sec-btn:hover { opacity: .85; }
+
+/* ── Forgot PIN button ── */
+.pin-forgot {
+  font-size: 13px; color: var(--t3); text-decoration: underline;
+  background: none; border: none; cursor: pointer; margin-top: -12px;
+  transition: color .15s;
+}
+.pin-forgot:hover { color: var(--t1); }
+
+/* ── Mobile responsive fixes ── */
 @media (max-width: 600px) {
-  .entry-row { grid-template-columns: 1fr 1fr; gap: 6px; }
-  .acc-combo { width: 100%; grid-column: 1 / -1; }
+  .entries-head { display: none; }
+  .entry-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+  .acc-combo { grid-column: 1 / -1; }
   .e-narr    { grid-column: 1 / -1; }
-  .del-row   { grid-column: 1 / -1; justify-self: end; }
+  .del-row   { grid-column: 2; justify-self: end; }
+
+  .pinned-grid { grid-template-columns: repeat(2, 1fr); }
+  .stats-grid  { grid-template-columns: 1fr 1fr; }
+  .ph-actions  { gap: 6px; }
 }

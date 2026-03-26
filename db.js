@@ -1,7 +1,5 @@
 // ═══════════════════════════════════════════════════════
 // db.js — IndexedDB Layer
-// Balance is always COMPUTED from vouchers, never stored.
-// Opening balance is a simple number (always debit-positive).
 // ═══════════════════════════════════════════════════════
 
 const DB_NAME = 'LedgerDB';
@@ -27,7 +25,7 @@ async function initDB() {
   });
 }
 
-// ── Core helpers ────────────────────────────────────────
+// ── Core helpers ─────────────────────────────────────────
 function _tx(stores, mode = 'readonly') {
   return db.transaction(Array.isArray(stores) ? stores : [stores], mode);
 }
@@ -88,9 +86,9 @@ async function nextVoucherId() {
   return 'V-' + String(c).padStart(4, '0');
 }
 
-// ── ACCOUNTS ────────────────────────────────────────────
-async function getAccounts()    { return _getAll('accounts'); }
-async function getAccount(id)   { return _get('accounts', id); }
+// ── ACCOUNTS ─────────────────────────────────────────────
+async function getAccounts()  { return _getAll('accounts'); }
+async function getAccount(id) { return _get('accounts', id); }
 
 async function saveAccount(acc) {
   const isNew = !acc.id;
@@ -98,10 +96,8 @@ async function saveAccount(acc) {
     acc.id        = await nextAccountId();
     acc.createdAt = new Date().toISOString();
   }
-  // Always clean: remove openingType, just keep openingBalance as number
   acc.openingBalance = parseFloat(acc.openingBalance) || 0;
-  delete acc.openingType; // remove legacy field
-
+  delete acc.openingType;
   await _put('accounts', acc);
   await addAudit(isNew ? `Account created: ${acc.name} (${acc.id})` : `Account updated: ${acc.name} (${acc.id})`);
   return acc;
@@ -110,14 +106,12 @@ async function saveAccount(acc) {
 async function deleteAccount(id) {
   const vouchers = await getVouchers();
   const inUse = vouchers.some(v => (v.entries||[]).some(e => e.accountId === id));
-  if (inUse) throw new Error('Account is linked to transactions and cannot be deleted.');
+  if (inUse) throw new Error('Account is used in transactions and cannot be deleted.');
   await _del('accounts', id);
   await addAudit(`Account deleted: ${id}`);
 }
 
-// ── BALANCE COMPUTATION ─────────────────────────────────
-// Balance = openingBalance + (all debits) - (all credits) for this account
-// Opening balance is a plain positive number (treat as debit-side opening)
+// ── BALANCE COMPUTATION ──────────────────────────────────
 async function computeBalance(accountId, vouchers = null) {
   const acc = await getAccount(accountId);
   if (!acc) return 0;
@@ -132,32 +126,38 @@ async function computeBalance(accountId, vouchers = null) {
   return bal;
 }
 
-// ── VOUCHERS ────────────────────────────────────────────
-async function getVouchers()   { return _getAll('vouchers'); }
-async function getVoucher(id)  { return _get('vouchers', id); }
+// ── VOUCHERS ─────────────────────────────────────────────
+async function getVouchers()  { return _getAll('vouchers'); }
+async function getVoucher(id) { return _get('vouchers', id); }
 
 async function saveVoucher(voucher) {
-  const isNew = !voucher.id;
+  // _forceNew flag: true when user is creating a new voucher (even with custom ID)
+  const forceNew = voucher._forceNew === true;
+  delete voucher._forceNew;
+
+  const isNew = forceNew || !voucher.id;
+
   if (isNew) {
-    voucher.id        = await nextVoucherId();
+    if (voucher.id) {
+      // Custom ID provided — check uniqueness
+      const existing = await _get('vouchers', voucher.id);
+      if (existing) throw new Error(`Voucher ID "${voucher.id}" already exists. Choose a different ID.`);
+    } else {
+      voucher.id = await nextVoucherId();
+    }
     voucher.createdAt = new Date().toISOString();
   } else {
     voucher.updatedAt = new Date().toISOString();
   }
+
   // Validate balance
   const dr = voucher.entries.reduce((s, e) => s + (parseFloat(e.debit)  || 0), 0);
   const cr = voucher.entries.reduce((s, e) => s + (parseFloat(e.credit) || 0), 0);
   if (Math.abs(dr - cr) > 0.001) throw new Error('Voucher is not balanced (Debit ≠ Credit).');
+
   await _put('vouchers', voucher);
   await addAudit(`Voucher ${isNew ? 'created' : 'updated'}: ${voucher.id}`);
   return voucher;
-}
-
-async function deleteVoucher(id) {
-  const v = await getVoucher(id);
-  if (v?.locked) throw new Error('Cannot delete a locked voucher. Use Reverse instead.');
-  await _del('vouchers', id);
-  await addAudit(`Voucher deleted: ${id}`);
 }
 
 async function reverseVoucher(originalId) {
@@ -174,7 +174,7 @@ async function reverseVoucher(originalId) {
     locked: true,
     entries: (orig.entries || []).map(e => ({
       accountId: e.accountId,
-      narration: `[Reversal] ${e.narration || ''}`.trim(),
+      narration: ('[Reversal] ' + (e.narration || '')).trim(),
       debit:  e.credit,
       credit: e.debit
     }))
@@ -183,11 +183,11 @@ async function reverseVoucher(originalId) {
   orig.reversed   = true;
   orig.reversedBy = revId;
   await _put('vouchers', orig);
-  await addAudit(`Voucher ${originalId} reversed → ${revId}`);
+  await addAudit(`Voucher ${originalId} reversed to ${revId}`);
   return rev;
 }
 
-// ── LEDGER REPORT ───────────────────────────────────────
+// ── LEDGER REPORT ────────────────────────────────────────
 async function getAccountLedger(accountId, fromDate, toDate) {
   const acc = await getAccount(accountId);
   if (!acc) return null;
@@ -195,7 +195,6 @@ async function getAccountLedger(accountId, fromDate, toDate) {
   const vouchers = (await getVouchers()).sort((a, b) => a.date.localeCompare(b.date));
   const openingBal = parseFloat(acc.openingBalance) || 0;
 
-  // Compute running balance BEFORE fromDate
   let runBal = openingBal;
   for (const v of vouchers) {
     if (fromDate && v.date < fromDate) {
@@ -236,16 +235,16 @@ async function getAccountLedger(accountId, fromDate, toDate) {
   };
 }
 
-// ── AUDIT ────────────────────────────────────────────────
+// ── AUDIT ─────────────────────────────────────────────────
 async function addAudit(message) {
   await _put('audit', { ts: new Date().toISOString() + Math.random(), message, time: new Date().toISOString() });
 }
 async function getAuditLog() {
   const all = await _getAll('audit');
-  return all.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 120);
+  return all.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 200);
 }
 
-// ── BACKUP / RESTORE ────────────────────────────────────
+// ── BACKUP / RESTORE ──────────────────────────────────────
 async function exportData() {
   const [meta, accounts, vouchers] = await Promise.all([
     _getAll('metadata'), _getAll('accounts'), _getAll('vouchers')
@@ -267,27 +266,24 @@ async function importData(data, mode = 'replace') {
 
   for (const m of (data.metadata||[])) await _put('metadata', m);
   for (const a of data.accounts) {
-    delete a.openingType; // clean legacy
+    delete a.openingType;
     a.openingBalance = parseFloat(a.openingBalance) || 0;
     await _put('accounts', a);
   }
   for (const v of data.vouchers) await _put('vouchers', v);
 
-  // Re-sync counters
+  // Re-sync counters to avoid collisions
   const allAcc = await _getAll('accounts');
   const allVou = await _getAll('vouchers');
-  const maxA = Math.max(0, ...allAcc.map(a => parseInt(a.id?.split('-')[1])||0));
-  const maxV = Math.max(0, ...allVou.map(v => parseInt(v.id?.split('-')[1])||0));
+  const maxA = Math.max(0, ...allAcc.map(a => parseInt((a.id||'').split('-')[1])||0));
+  const maxV = Math.max(0, ...allVou.map(v => parseInt((v.id||'').split('-')[1])||0));
   await setMeta('accountCounter', maxA);
   await setMeta('voucherCounter', maxV);
 
   await addAudit(`Import (${mode}): ${data.accounts.length} accounts, ${data.vouchers.length} vouchers`);
 }
 
-// ── CLEAR ALL ───────────────────────────────────────────
+// ── CLEAR ALL ─────────────────────────────────────────────
 async function clearAllData() {
-  await _clear('metadata');
-  await _clear('accounts');
-  await _clear('vouchers');
-  await _clear('audit');
+  await Promise.all(['metadata','accounts','vouchers','audit'].map(_clear));
 }
