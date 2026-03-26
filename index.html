@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ledger" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Ledger — Personal Finance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+    }
+  </script>
+</head>
+<body>
+
+<!-- PIN SCREEN -->
+<div id="pin-screen" class="pin-screen active">
+  <div class="pin-bg"></div>
+  <div class="pin-container">
+    <div class="pin-logo">
+      <div class="pin-logo-mark">L</div>
+      <h1>Ledger</h1>
+      <p id="pin-subtitle">Your private finance companion</p>
+    </div>
+    <div class="pin-form" id="pin-form">
+      <div class="pin-dots" id="pin-dots">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <div id="pin-error" class="pin-error"></div>
+      <div class="pin-keypad">
+        <button class="key" data-val="1">1</button>
+        <button class="key" data-val="2">2</button>
+        <button class="key" data-val="3">3</button>
+        <button class="key" data-val="4">4</button>
+        <button class="key" data-val="5">5</button>
+        <button class="key" data-val="6">6</button>
+        <button class="key" data-val="7">7</button>
+        <button class="key" data-val="8">8</button>
+        <button class="key" data-val="9">9</button>
+        <button class="key key-clear" data-val="clear">⌫</button>
+        <button class="key" data-val="0">0</button>
+        <button class="key key-ok" data-val="ok">OK</button>
+      </div>
+      <p id="pin-hint" class="pin-hint"></p>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="app hidden">
+
+  <!-- SIDEBAR NAV (desktop) -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark">L</div>
+      <span>Ledger</span>
+    </div>
+    <div class="nav-items">
+      <button class="nav-item active" data-tab="dashboard">
+        <span class="nav-icon">◈</span><span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-item" data-tab="accounts">
+        <span class="nav-icon">◉</span><span class="nav-label">Accounts</span>
+      </button>
+      <button class="nav-item" data-tab="transactions">
+        <span class="nav-icon">◧</span><span class="nav-label">Transactions</span>
+      </button>
+      <button class="nav-item" data-tab="reports">
+        <span class="nav-icon">◫</span><span class="nav-label">Reports</span>
+      </button>
+      <button class="nav-item" data-tab="backup">
+        <span class="nav-icon">◪</span><span class="nav-label">Backup</span>
+      </button>
+      <button class="nav-item" data-tab="settings">
+        <span class="nav-icon">◎</span><span class="nav-label">Settings</span>
+      </button>
+    </div>
+    <div class="sidebar-footer">
+      <button class="lock-btn" id="lock-btn-sidebar">Lock</button>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <!-- TOP BAR (mobile) -->
+    <header class="topbar">
+      <div class="topbar-brand">
+        <div class="brand-mark-sm">L</div>
+        <span>Ledger</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="lock-btn-top">🔒</button>
+      </div>
+    </header>
+
+    <!-- TAB CONTENT -->
+    <div class="tab-content">
+
+      <!-- DASHBOARD -->
+      <section class="tab-pane active" id="tab-dashboard">
+        <div class="page-header">
+          <h2>Dashboard</h2>
+          <span class="date-badge" id="today-date"></span>
+        </div>
+        <div class="dash-stats">
+          <div class="stat-card stat-primary">
+            <div class="stat-label">Net Balance</div>
+            <div class="stat-value" id="dash-net-balance">0.00</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Accounts</div>
+            <div class="stat-value" id="dash-accounts">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Vouchers</div>
+            <div class="stat-value" id="dash-vouchers">0</div>
+          </div>
+        </div>
+        <div class="section-title">Recent Transactions</div>
+        <div class="recent-list" id="dash-recent"></div>
+      </section>
+
+      <!-- ACCOUNTS -->
+      <section class="tab-pane" id="tab-accounts">
+        <div class="page-header">
+          <h2>Accounts</h2>
+          <button class="btn-primary" id="btn-new-account">+ New Account</button>
+        </div>
+        <div class="accounts-list" id="accounts-list"></div>
+      </section>
+
+      <!-- TRANSACTIONS -->
+      <section class="tab-pane" id="tab-transactions">
+        <div class="page-header">
+          <h2>Transactions</h2>
+          <button class="btn-primary" id="btn-new-voucher">+ New Voucher</button>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="voucher-search" placeholder="Search by Voucher ID or date…" />
+        </div>
+        <div class="vouchers-list" id="vouchers-list"></div>
+      </section>
+
+      <!-- REPORTS -->
+      <section class="tab-pane" id="tab-reports">
+        <div class="page-header">
+          <h2>Ledger Report</h2>
+        </div>
+        <div class="report-controls card">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Account</label>
+              <select id="report-account"></select>
+            </div>
+            <div class="form-group">
+              <label>From Date</label>
+              <input type="date" id="report-from" />
+            </div>
+            <div class="form-group">
+              <label>To Date</label>
+              <input type="date" id="report-to" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="btn-generate-report">Generate Report</button>
+            <button class="btn-secondary" id="btn-print-report">Export PDF</button>
+          </div>
+        </div>
+        <div id="report-output"></div>
+      </section>
+
+      <!-- BACKUP -->
+      <section class="tab-pane" id="tab-backup">
+        <div class="page-header">
+          <h2>Backup & Restore</h2>
+        </div>
+        <div class="backup-grid">
+          <div class="card backup-card">
+            <div class="backup-icon">↑</div>
+            <h3>Export Data</h3>
+            <p>Download all your financial data as a JSON file for safekeeping.</p>
+            <div class="backup-meta" id="last-backup-info">Last backup: Never</div>
+            <button class="btn-primary" id="btn-export">Export JSON</button>
+          </div>
+          <div class="card backup-card">
+            <div class="backup-icon">↓</div>
+            <h3>Import Data</h3>
+            <p>Restore from a previously exported JSON backup file.</p>
+            <div class="import-options">
+              <label class="radio-label">
+                <input type="radio" name="import-mode" value="replace" checked /> Replace all data
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="import-mode" value="merge" /> Merge with existing
+              </label>
+            </div>
+            <button class="btn-secondary" id="btn-import">Import JSON</button>
+            <input type="file" id="import-file" accept=".json" style="display:none" />
+          </div>
+        </div>
+        <div class="card audit-card">
+          <h3>Audit Log</h3>
+          <div id="audit-log-list" class="audit-list"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="tab-pane" id="tab-settings">
+        <div class="page-header">
+          <h2>Settings</h2>
+        </div>
+        <div class="settings-grid">
+          <div class="card settings-card">
+            <h3>Security</h3>
+            <div class="form-group">
+              <label>Change PIN</label>
+              <button class="btn-secondary" id="btn-change-pin">Change PIN</button>
+            </div>
+          </div>
+          <div class="card settings-card">
+            <h3>Appearance</h3>
+            <div class="form-group toggle-group">
+              <label>Dark Mode</label>
+              <label class="toggle">
+                <input type="checkbox" id="dark-mode-toggle" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="card settings-card">
+            <h3>Currency</h3>
+            <div class="form-group">
+              <label>Currency Symbol</label>
+              <input type="text" id="currency-symbol" value="$" maxlength="4" style="width:80px" />
+              <button class="btn-secondary" id="btn-save-currency">Save</button>
+            </div>
+          </div>
+          <div class="card settings-card danger-card">
+            <h3>Danger Zone</h3>
+            <p>Permanently delete all data. This cannot be undone.</p>
+            <button class="btn-danger" id="btn-clear-all">Clear All Data</button>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- end tab-content -->
+  </main>
+
+  <!-- BOTTOM NAV (mobile) -->
+  <nav class="bottom-nav">
+    <button class="bnav-item active" data-tab="dashboard">
+      <span class="bnav-icon">◈</span>
+      <span class="bnav-label">Home</span>
+    </button>
+    <button class="bnav-item" data-tab="accounts">
+      <span class="bnav-icon">◉</span>
+      <span class="bnav-label">Accounts</span>
+    </button>
+    <button class="bnav-item" data-tab="transactions">
+      <span class="bnav-icon">◧</span>
+      <span class="bnav-label">Txns</span>
+    </button>
+    <button class="bnav-item" data-tab="reports">
+      <span class="bnav-icon">◫</span>
+      <span class="bnav-label">Reports</span>
+    </button>
+    <button class="bnav-item" data-tab="backup">
+      <span class="bnav-icon">◪</span>
+      <span class="bnav-label">Backup</span>
+    </button>
+  </nav>
+
+</div><!-- end #app -->
+
+<!-- MODALS -->
+<div id="modal-overlay" class="modal-overlay hidden">
+
+  <!-- Account Modal -->
+  <div class="modal" id="modal-account">
+    <div class="modal-header">
+      <h3 id="modal-account-title">New Account</h3>
+      <button class="modal-close" data-modal="modal-account">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Account Name *</label>
+        <input type="text" id="acc-name" placeholder="e.g. Cash, Bank, Salary" />
+      </div>
+      <div class="form-group">
+        <label>Opening Balance</label>
+        <input type="number" id="acc-opening" placeholder="0.00" step="0.01" inputmode="decimal" />
+      </div>
+      <div class="form-group">
+        <label>Balance Type</label>
+        <select id="acc-opening-type">
+          <option value="debit">Debit (Asset/Expense)</option>
+          <option value="credit">Credit (Liability/Income)</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-modal="modal-account">Cancel</button>
+      <button class="btn-primary" id="btn-save-account">Save Account</button>
+    </div>
+  </div>
+
+  <!-- Voucher Modal -->
+  <div class="modal modal-wide" id="modal-voucher">
+    <div class="modal-header">
+      <h3 id="modal-voucher-title">New Voucher</h3>
+      <button class="modal-close" data-modal="modal-voucher">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Voucher ID</label>
+          <input type="text" id="v-id" readonly placeholder="Auto-generated" />
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="v-date" />
+        </div>
+      </div>
+      <div class="voucher-entries-wrap">
+        <div class="voucher-entries-header">
+          <span>Account</span>
+          <span>Narration</span>
+          <span>Debit</span>
+          <span>Credit</span>
+          <span></span>
+        </div>
+        <div id="voucher-entries"></div>
+      </div>
+      <button class="btn-ghost" id="btn-add-row">+ Add Row</button>
+      <div class="voucher-totals">
+        <div class="total-row">
+          <span>Total Debit</span>
+          <span id="total-debit" class="total-val">0.00</span>
+        </div>
+        <div class="total-row">
+          <span>Total Credit</span>
+          <span id="total-credit" class="total-val">0.00</span>
+        </div>
+        <div class="total-row balance-row" id="balance-check-row">
+          <span>Balance</span>
+          <span id="balance-check" class="total-val">✓ Balanced</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-modal="modal-voucher">Cancel</button>
+      <button class="btn-primary" id="btn-save-voucher">Save Voucher</button>
+    </div>
+  </div>
+
+  <!-- Voucher View Modal -->
+  <div class="modal modal-wide" id="modal-voucher-view">
+    <div class="modal-header">
+      <h3 id="modal-vview-title">Voucher Details</h3>
+      <button class="modal-close" data-modal="modal-voucher-view">✕</button>
+    </div>
+    <div class="modal-body" id="modal-vview-body"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" data-modal="modal-voucher-view">Close</button>
+      <button class="btn-secondary" id="btn-vview-edit">Edit</button>
+      <button class="btn-warning" id="btn-vview-reverse">Reverse</button>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div class="modal modal-sm" id="modal-confirm">
+    <div class="modal-header">
+      <h3 id="confirm-title">Confirm</h3>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-msg"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="confirm-cancel">Cancel</button>
+      <button class="btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="db.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
