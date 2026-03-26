@@ -826,3 +826,124 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   .pin-keypad { width: 220px; }
   .key { height: 56px; font-size: 20px; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   INSTALL BUTTON
+   ═══════════════════════════════════════════════════════ */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-install {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--accent, #6c63ff);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .2s, transform .15s;
+  white-space: nowrap;
+}
+.btn-install:hover { opacity: .88; transform: translateY(-1px); }
+.btn-install.hidden { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════
+   STATS GRID — 2 boxes (no hero)
+   ═══════════════════════════════════════════════════════ */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.stat-hero { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════
+   PINNED ACCOUNTS GRID
+   ═══════════════════════════════════════════════════════ */
+.pinned-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.pinned-card {
+  background: var(--card, #18181f);
+  border: 1px solid var(--border, #2a2a35);
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  cursor: pointer;
+  transition: border-color .2s, transform .15s;
+}
+.pinned-card:hover { border-color: var(--accent, #6c63ff); transform: translateY(-2px); }
+.pinned-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t1, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+.pinned-id {
+  font-size: 10px;
+  color: var(--t3, #666);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 8px;
+}
+.pinned-bal {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green, #4ade80);
+}
+.pinned-bal.neg { color: var(--red, #f87171); }
+
+/* ═══════════════════════════════════════════════════════
+   PIN BUTTON on account rows
+   ═══════════════════════════════════════════════════════ */
+.pin-btn { color: var(--t3, #666); }
+.pin-btn.pinned { color: var(--accent, #6c63ff) !important; }
+.pin-btn.pinned svg { fill: var(--accent, #6c63ff); stroke: var(--accent, #6c63ff); }
+.pin-btn:hover { color: var(--accent, #6c63ff); }
+
+/* ═══════════════════════════════════════════════════════
+   ACCOUNT COMBO (type + datalist)
+   ═══════════════════════════════════════════════════════ */
+.acc-combo {
+  position: relative;
+  flex: 0 0 auto;
+  width: 160px;
+  min-width: 0;
+}
+.acc-combo .e-acc-text {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: var(--input-bg, #111118);
+  border: 1px solid var(--border, #2a2a35);
+  border-radius: 8px;
+  color: var(--t1, #fff);
+  font-size: 13px;
+  outline: none;
+}
+.acc-combo .e-acc-text:focus {
+  border-color: var(--accent, #6c63ff);
+}
+.acc-combo .e-acc-text.acc-nomatch {
+  border-color: var(--red, #f87171);
+}
+
+/* Adjust entry-row first column to use .acc-combo width */
+.entry-row { display: grid; grid-template-columns: 160px 1fr 90px 90px 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+@media (max-width: 600px) {
+  .entry-row { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .acc-combo { width: 100%; grid-column: 1 / -1; }
+  .e-narr    { grid-column: 1 / -1; }
+  .del-row   { grid-column: 1 / -1; justify-self: end; }
+}

@@ -1,7 +1,5 @@
 // ═══════════════════════════════════════════════════════
 // app.js — Ledger Main Application
-// Balances are always computed live from vouchers.
-// Saving a voucher triggers account balance refresh.
 // ═══════════════════════════════════════════════════════
 
 let currentTab = 'dashboard';
@@ -10,6 +8,22 @@ let editingVoucherId = null;
 let viewingVoucherId = null;
 let confirmCb = null;
 let curr = '$';
+
+const PINNED_KEY = 'ledger_pinned_accounts';
+
+// ── PWA Install ──────────────────────────────────────────
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredInstall = e;
+  const btn = document.getElementById('btn-install');
+  if (btn) btn.classList.remove('hidden');
+});
+window.addEventListener('appinstalled', () => {
+  const btn = document.getElementById('btn-install');
+  if (btn) btn.classList.add('hidden');
+  _deferredInstall = null;
+});
 
 // ── Boot ─────────────────────────────────────────────────
 async function onAppStart() {
@@ -24,8 +38,32 @@ async function onAppStart() {
   _setupBackup();
   _setupSettings();
   _setupConfirm();
+  _setupInstall();
   switchTab('dashboard');
   document.getElementById('today-date').textContent = _fmtDate(new Date().toISOString().split('T')[0]);
+}
+
+// ── Install Button ───────────────────────────────────────
+function _setupInstall() {
+  const btn = document.getElementById('btn-install');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (!_deferredInstall) {
+      // iOS / already installed — show instructions
+      showToast('Tap Share → "Add to Home Screen" to install', 'info');
+      return;
+    }
+    _deferredInstall.prompt();
+    const { outcome } = await _deferredInstall.userChoice;
+    if (outcome === 'accepted') {
+      btn.classList.add('hidden');
+      _deferredInstall = null;
+    }
+  });
+  // On iOS Safari, show button anyway since beforeinstallprompt never fires
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInStandalone = window.navigator.standalone;
+  if (isIOS && !isInStandalone) btn.classList.remove('hidden');
 }
 
 // ── Theme ────────────────────────────────────────────────
@@ -135,20 +173,61 @@ function _esc(s) {
 }
 
 // ═══════════════════════════════════════════════════════
+// PINNED ACCOUNTS
+// ═══════════════════════════════════════════════════════
+function _getPinnedIds() {
+  try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
+  catch { return []; }
+}
+function _setPinnedIds(ids) {
+  localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+}
+function _togglePin(accId) {
+  const ids = _getPinnedIds();
+  const idx = ids.indexOf(accId);
+  if (idx === -1) ids.push(accId);
+  else ids.splice(idx, 1);
+  _setPinnedIds(ids);
+}
+function _isPinned(accId) {
+  return _getPinnedIds().includes(accId);
+}
+
+// ═══════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════
 async function renderDashboard() {
   try {
     const [accounts, vouchers] = await Promise.all([getAccounts(), getVouchers()]);
 
-    // Net balance = sum of all computed balances
-    let net = 0;
-    for (const a of accounts) net += await computeBalance(a.id, vouchers);
-    document.getElementById('dash-net-balance').textContent = _fmtSigned(net);
-    document.getElementById('dash-accounts').textContent    = accounts.length;
-    document.getElementById('dash-vouchers').textContent    = vouchers.length;
+    document.getElementById('dash-accounts').textContent = accounts.length;
+    document.getElementById('dash-vouchers').textContent = vouchers.length;
 
-    // Recent vouchers
+    // ── Pinned accounts section ──────────────────────────
+    const pinnedIds = _getPinnedIds();
+    const pinnedEl  = document.getElementById('dash-pinned');
+    const pinnedSection = document.getElementById('dash-pinned-section');
+    pinnedEl.innerHTML = '';
+
+    const pinnedAccounts = accounts.filter(a => pinnedIds.includes(a.id));
+    if (pinnedAccounts.length === 0) {
+      pinnedSection.style.display = 'none';
+    } else {
+      pinnedSection.style.display = '';
+      for (const a of pinnedAccounts) {
+        const bal = await computeBalance(a.id, vouchers);
+        const card = document.createElement('div');
+        card.className = 'pinned-card';
+        card.innerHTML = `
+          <div class="pinned-name">${_esc(a.name)}</div>
+          <div class="pinned-id">${a.id}</div>
+          <div class="pinned-bal ${bal < 0 ? 'neg' : ''}">${_fmtSigned(bal)}</div>`;
+        card.addEventListener('click', () => switchTab('accounts'));
+        pinnedEl.appendChild(card);
+      }
+    }
+
+    // ── Recent vouchers ──────────────────────────────────
     const recent = [...vouchers].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 8);
     const container = document.getElementById('dash-recent');
     container.innerHTML = '';
@@ -178,7 +257,6 @@ async function renderDashboard() {
 
 // ═══════════════════════════════════════════════════════
 // ACCOUNTS
-// Balance is COMPUTED every render — not stored.
 // ═══════════════════════════════════════════════════════
 function _setupAccounts() {
   document.getElementById('btn-new-account').addEventListener('click', () => _openAccountModal());
@@ -195,7 +273,8 @@ async function renderAccounts() {
   }
   const sorted = [...accounts].sort((a,b) => a.name.localeCompare(b.name));
   for (const acc of sorted) {
-    const bal = await computeBalance(acc.id, vouchers);
+    const bal    = await computeBalance(acc.id, vouchers);
+    const pinned = _isPinned(acc.id);
     const el = document.createElement('div');
     el.className = 'acc-row';
     el.innerHTML = `
@@ -210,12 +289,24 @@ async function renderAccounts() {
           <div class="acc-bal">${_fmtSigned(bal)}</div>
         </div>
         <div class="acc-actions">
+          <button class="ic-btn pin-btn ${pinned ? 'pinned' : ''}" data-pin="${acc.id}" title="${pinned ? 'Unpin from Dashboard' : 'Pin to Dashboard'}">
+            <svg width="13" height="13"><use href="#ic-pin"/></svg>
+          </button>
           <button class="ic-btn" data-edit="${acc.id}" title="Edit"><svg width="13" height="13"><use href="#ic-edit"/></svg></button>
           <button class="ic-btn del" data-del="${acc.id}" title="Delete"><svg width="13" height="13"><use href="#ic-trash"/></svg></button>
         </div>
       </div>`;
     container.appendChild(el);
   }
+  container.querySelectorAll('[data-pin]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = b.dataset.pin;
+    _togglePin(id);
+    const nowPinned = _isPinned(id);
+    b.classList.toggle('pinned', nowPinned);
+    b.title = nowPinned ? 'Unpin from Dashboard' : 'Pin to Dashboard';
+    showToast(nowPinned ? 'Pinned to dashboard' : 'Unpinned from dashboard', 'success');
+  }));
   container.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => _openAccountModal(b.dataset.edit)));
   container.querySelectorAll('[data-del]').forEach(b  => b.addEventListener('click', () => _deleteAccountHandler(b.dataset.del)));
 }
@@ -253,7 +344,6 @@ async function _saveAccountHandler() {
     await saveAccount(acc);
     _closeModal('modal-account');
     showToast(editingAccountId ? 'Account updated' : 'Account created', 'success');
-    // Refresh accounts AND dashboard so balances update immediately
     renderAccounts();
     if (currentTab === 'dashboard') renderDashboard();
     editingAccountId = null;
@@ -265,6 +355,9 @@ async function _deleteAccountHandler(id) {
   _confirm('Delete Account', `Delete "${acc?.name}"? This cannot be undone.`, async () => {
     try {
       await deleteAccount(id);
+      // Remove from pinned if pinned
+      const ids = _getPinnedIds().filter(x => x !== id);
+      _setPinnedIds(ids);
       showToast('Account deleted', 'success');
       renderAccounts();
     } catch(e) { showToast(e.message, 'error'); }
@@ -291,7 +384,6 @@ function _setupTransactions() {
         showToast(`Reversal voucher ${rev.id} created`, 'success');
         _closeModal('modal-voucher-view');
         renderVouchers();
-        // Update accounts tab + dashboard balances live
         if (currentTab === 'accounts')  renderAccounts();
         if (currentTab === 'dashboard') renderDashboard();
       } catch(e) { showToast(e.message, 'error'); }
@@ -361,15 +453,27 @@ async function openVoucherModal(id = null) {
   _openModal('modal-voucher');
 }
 
+// ── Account combo: type name OR pick from dropdown ───────
 async function _addEntryRow(prefill = null) {
   const accounts = await getAccounts();
   const container = document.getElementById('voucher-entries');
   const row = document.createElement('div');
   row.className = 'entry-row';
 
-  const opts = accounts.map(a => `<option value="${a.id}">${_esc(a.name)}</option>`).join('');
+  // unique id for datalist
+  const dlId = 'dl-' + Math.random().toString(36).slice(2, 9);
+
+  const dlOpts = accounts
+    .sort((a,b) => a.name.localeCompare(b.name))
+    .map(a => `<option value="${_esc(a.name)}"></option>`)
+    .join('');
+
   row.innerHTML = `
-    <select class="e-acc"><option value="">— Account —</option>${opts}</select>
+    <div class="acc-combo">
+      <input class="e-acc-text" type="text" placeholder="Account…" autocomplete="off" list="${dlId}" />
+      <datalist id="${dlId}">${dlOpts}</datalist>
+      <input class="e-acc" type="hidden" value="" />
+    </div>
     <input class="e-narr" type="text" placeholder="Narration" autocomplete="off" />
     <input class="e-dr" type="number" placeholder="0.00" step="0.01" inputmode="decimal" min="0" />
     <input class="e-cr" type="number" placeholder="0.00" step="0.01" inputmode="decimal" min="0" />
@@ -378,15 +482,34 @@ async function _addEntryRow(prefill = null) {
     </button>`;
   container.appendChild(row);
 
+  const textInput = row.querySelector('.e-acc-text');
+  const hiddenAcc = row.querySelector('.e-acc');
+
+  // Resolve typed/selected name → account id
+  function _resolveAcc() {
+    const typed = textInput.value.trim().toLowerCase();
+    const match = accounts.find(a => a.name.toLowerCase() === typed);
+    hiddenAcc.value = match ? match.id : '';
+    textInput.classList.toggle('acc-nomatch', typed.length > 0 && !match);
+    _updateTotals();
+  }
+  textInput.addEventListener('input', _resolveAcc);
+  textInput.addEventListener('change', _resolveAcc);
+
+  // Prefill
   if (prefill) {
-    row.querySelector('.e-acc').value  = prefill.accountId || '';
+    const acc = accounts.find(a => a.id === (prefill.accountId || prefill.account));
+    if (acc) {
+      textInput.value = acc.name;
+      hiddenAcc.value = acc.id;
+    }
     row.querySelector('.e-narr').value = prefill.narration || '';
     if (prefill.debit)  row.querySelector('.e-dr').value = prefill.debit;
     if (prefill.credit) row.querySelector('.e-cr').value = prefill.credit;
   }
 
-  // Enter-key navigation
-  const fields = row.querySelectorAll('select, input:not([type="button"])');
+  // Enter-key navigation through: text → narration → debit → credit
+  const fields = [textInput, row.querySelector('.e-narr'), row.querySelector('.e-dr'), row.querySelector('.e-cr')];
   fields.forEach((f, i) => {
     f.addEventListener('keydown', async ev => {
       if (ev.key === 'Enter') {
@@ -422,7 +545,7 @@ function _updateTotals() {
   const { dr, cr } = _getTotals();
   document.getElementById('total-debit').textContent  = _n2(dr);
   document.getElementById('total-credit').textContent = _n2(cr);
-  const bal     = Math.abs(dr - cr);
+  const bal      = Math.abs(dr - cr);
   const balanced = bal < 0.001;
   const checkEl  = document.getElementById('balance-check');
   const rowEl    = document.getElementById('balance-check-row');
@@ -437,10 +560,10 @@ async function _saveVoucherHandler() {
   const entries = [];
   let hasAcc = false;
   document.querySelectorAll('#voucher-entries .entry-row').forEach(r => {
-    const accountId  = r.querySelector('.e-acc').value;
-    const narration  = r.querySelector('.e-narr').value.trim();
-    const debit      = parseFloat(r.querySelector('.e-dr').value) || 0;
-    const credit     = parseFloat(r.querySelector('.e-cr').value) || 0;
+    const accountId = r.querySelector('.e-acc').value;
+    const narration = r.querySelector('.e-narr').value.trim();
+    const debit     = parseFloat(r.querySelector('.e-dr').value) || 0;
+    const credit    = parseFloat(r.querySelector('.e-cr').value) || 0;
     if (accountId) hasAcc = true;
     if (accountId || debit || credit) entries.push({ accountId, narration, debit, credit });
   });
@@ -459,7 +582,6 @@ async function _saveVoucherHandler() {
     _closeModal('modal-voucher');
     showToast(editingVoucherId ? 'Voucher updated' : `${saved.id} saved`, 'success');
     renderVouchers();
-    // Live balance update across tabs
     renderAccounts();
     if (currentTab === 'dashboard') renderDashboard();
     editingVoucherId = null;
@@ -508,7 +630,6 @@ async function openVoucherView(id) {
       </table>
     </div>`;
 
-  // Hide edit/reverse buttons appropriately
   document.getElementById('btn-vview-edit').style.display    = (v.reversed||v.isReversal) ? 'none' : '';
   document.getElementById('btn-vview-reverse').style.display = v.reversed ? 'none' : '';
   _openModal('modal-voucher-view');
